@@ -1,0 +1,51 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+@layer base {
+  body {
+    @apply bg-[#FAFAFC] text-[#1A1D1F] font-sans antialiased;
+  }
+}
+
+@layer utilities {
+  .shadow-card {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.01), 0 2px 4px -1px rgba(0, 0, 0, 0.006), 0 20px 25px -5px rgba(0, 0, 0, 0.03);
+  }
+  
+  .shadow-premium {
+    box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.04), 0 20px 25px -5px rgba(0, 0, 0, 0.02);
+  }
+
+  .glass-light {
+    @apply bg-white/80 backdrop-blur-md border border-white/40;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(15px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes scaleUp {
+  from { transform: scale(0.97); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.animate-fadeIn { animation: fadeIn 0.4s ease-out; }
+.animate-slideUp { animation: slideUp 0.5s ease-out; }
+.animate-scaleUp { animation: scaleUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* Hide scrollbar but keep functionality */
+.scrollbar-none::-webkit-scrollbar { display: none; }
+.scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
