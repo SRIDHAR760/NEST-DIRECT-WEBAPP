@@ -7,6 +7,8 @@
         "email": { "type": "string", "description": "Email address of the user" },
         "photoURL": { "type": "string", "description": "Profile picture URL" },
         "favorites": { "type": "array", "description": "Array of saved property IDs" },
+        "onboardingCompleted": { "type": "boolean", "description": "Flag indicating if the user has completed onboarding" },
+        "isKycVerified": { "type": "boolean", "description": "Flag indicating if the user has completed identity verification" },
         "createdAt": { "type": "string", "description": "Timestamp of profile creation" }
       },
       "description": "User profiles and saved favorites preferences"

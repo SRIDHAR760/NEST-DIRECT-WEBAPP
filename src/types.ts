@@ -27,6 +27,7 @@ export interface Property {
   createdAt: string;
   brokerSavings: number; // Simulated broker commission saved
   isFeatured?: boolean;
+  status?: 'available' | 'occupied';
 }
 
 export interface ChatMessage {
@@ -35,6 +36,8 @@ export interface ChatMessage {
   sender: 'tenant' | 'owner';
   text: string;
   timestamp: string;
+  tenantEmail?: string;
+  ownerEmail?: string;
 }
 
 export interface DirectInquiry {
@@ -48,6 +51,7 @@ export interface DirectInquiry {
   message: string;
   status: 'pending' | 'accepted' | 'declined';
   createdAt: string;
+  ownerEmail?: string;
 }
 
 export interface DocSection {

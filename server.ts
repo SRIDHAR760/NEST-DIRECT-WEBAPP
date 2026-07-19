@@ -68,16 +68,26 @@ Keep your answers beautifully structured, scannable, professional, and Chennai-s
       while (attempts < maxAttempts) {
         try {
           const response = await ai.models.generateContent({
-            model: "gemini-1.5-flash", // Using 1.5-flash for maximum stability/availability
+            model: "gemini-3.5-flash", // Upgraded to gemini-3.5-flash per skill guidelines
             contents: formattedContents,
             config: {
               systemInstruction,
               temperature: 0.7,
+              tools: [{ googleMaps: {} }],
+              toolConfig: {
+                retrievalConfig: {
+                  latLng: {
+                    latitude: 13.0827,
+                    longitude: 80.2707
+                  }
+                }
+              }
             }
           });
 
           const replyText = response.text || "I was unable to generate a detailed response. Please try reframing your question.";
-          return res.json({ reply: replyText });
+          const groundingMetadata = response.candidates?.[0]?.groundingMetadata || null;
+          return res.json({ reply: replyText, groundingMetadata });
         } catch (error: any) {
           lastError = error;
           attempts++;
@@ -109,6 +119,64 @@ Keep your answers beautifully structured, scannable, professional, and Chennai-s
       }
       
       res.status(500).json({ error: error.message || "Failed to communicate with Chennai Real-Estate Guru." });
+    }
+  });
+
+  // API endpoint for dynamic Rental Agreement Customization and AI Drafting
+  app.post("/api/generate-agreement", async (req, res) => {
+    try {
+      const { propertyTitle, rent, deposit, tenantName, ownerName, durationMonths, customClauses } = req.body;
+      if (!propertyTitle || !rent || !tenantName) {
+        return res.status(400).json({ error: "Property title, Rent, and Tenant Name are required." });
+      }
+
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return res.status(500).json({ error: "Gemini API key is not configured on the server. Please add it to your secrets settings." });
+      }
+
+      // Initialize modern GoogleGenAI client and set User-Agent telemetry
+      const ai = new GoogleGenAI({
+        apiKey: apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          }
+        }
+      });
+
+      const prompt = `Draft a professional, legally-rigorous peer-to-peer Residential Rent Agreement for a property in Chennai, Tamil Nadu under the Tamil Nadu Regulation of Rights and Responsibilities of Landlords and Tenants Act.
+      
+      Details:
+      - Property / Asset: ${propertyTitle}
+      - Landlord / Owner Name: ${ownerName || "Direct Owner"}
+      - Tenant Name: ${tenantName}
+      - Monthly Rent: ₹${rent.toLocaleString()}/month (Direct settlement, zero agency commission)
+      - Security Deposit: ₹${deposit ? deposit.toLocaleString() : "Not Specified"}
+      - Lease Term / Duration: ${durationMonths || 11} Months
+      - Custom Clauses / Special Terms: ${customClauses || "Standard peaceable enjoyment, no commercial subletting, pet-friendly."}
+
+      Ensure it includes:
+      1. A "PEER-TO-PEER CLAUSE" explicitly stating that no brokers, intermediaries, or agency commissions are involved or due.
+      2. Clear deposit security refund guidelines upon handover at lease completion.
+      3. Formal legalese structure with section headings (Rent Payment, Maintenance, Tenure, Covenants).
+      4. Placeholders for signatures of both parties.
+      
+      Format with elegant typography, spacing, and structured clauses. Output only the final document text without any markdown fence brackets (like \`\`\`markdown or similar).`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: prompt,
+        config: {
+          temperature: 0.7,
+        }
+      });
+
+      const replyText = response.text || "Failed to generate agreement draft. Please try again.";
+      return res.json({ agreement: replyText });
+    } catch (error: any) {
+      console.error("Gemini Agreement Generator Server Error:", error);
+      res.status(500).json({ error: error.message || "Failed to generate rent agreement draft." });
     }
   });
 

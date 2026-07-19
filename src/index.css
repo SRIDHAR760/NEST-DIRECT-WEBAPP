@@ -1,29 +1,45 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700;9..144,800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 @theme {
   --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Fraunces", ui-serif, Georgia, serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* NestDirect brand palette — Chennai-rooted, not generic SaaS blue */
+  --color-ink: #12231C;
+  --color-ink-light: #24382F;
+  --color-parchment: #F6F3EC;
+  --color-parchment-dark: #ECE6D8;
+  --color-terracotta: #B5652B;
+  --color-terracotta-dark: #96521F;
+  --color-sage: #7A8C7E;
+  --color-brass: #C9A227;
 }
 
 @layer base {
   body {
-    @apply bg-[#FAFAFC] text-[#1A1D1F] font-sans antialiased;
+    @apply bg-parchment text-[#1A1D1F] font-sans antialiased;
   }
 }
 
 @layer utilities {
   .shadow-card {
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.01), 0 2px 4px -1px rgba(0, 0, 0, 0.006), 0 20px 25px -5px rgba(0, 0, 0, 0.03);
+    box-shadow: 0 4px 6px -1px rgba(18, 35, 28, 0.02), 0 2px 4px -1px rgba(18, 35, 28, 0.01), 0 20px 25px -5px rgba(18, 35, 28, 0.05);
   }
   
   .shadow-premium {
-    box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.04), 0 20px 25px -5px rgba(0, 0, 0, 0.02);
+    box-shadow: 0 10px 40px -10px rgba(18, 35, 28, 0.06), 0 20px 25px -5px rgba(18, 35, 28, 0.03);
   }
 
   .glass-light {
     @apply bg-white/80 backdrop-blur-md border border-white/40;
+  }
+
+  /* Signature verified-owner seal — brass wax-stamp motif, reused wherever
+     an owner/listing is verified, to reinforce the core "no brokers" trust claim */
+  .verified-seal {
+    @apply inline-flex items-center gap-1 bg-brass/10 text-brass border border-brass/30 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider;
   }
 }
 

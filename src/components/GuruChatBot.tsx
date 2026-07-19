@@ -1,13 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Property } from '../types';
-import { Send, Sparkles, Bot, User, Trash2, HelpCircle, ArrowRight, ShieldCheck, Loader2 } from 'lucide-react';
+import { Send, Sparkles, Bot, User, Trash2, HelpCircle, ArrowRight, ShieldCheck, Loader2, MapPin } from 'lucide-react';
 
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   text: string;
   timestamp: string;
+  groundingMetadata?: any;
 }
 
 interface GuruChatBotProps {
@@ -118,7 +119,8 @@ export default function GuruChatBot({ properties }: GuruChatBotProps) {
         id: `msg-guru-${Date.now()}`,
         role: 'assistant',
         text: data.reply,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        groundingMetadata: data.groundingMetadata
       };
       setMessages(prev => [...prev, assistantMessage]);
     } catch (err: any) {
@@ -181,14 +183,14 @@ export default function GuruChatBot({ properties }: GuruChatBotProps) {
       {/* Header */}
       <div className="px-10 py-8 bg-white border-b border-slate-100 flex items-center justify-between z-10">
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center relative">
-            <Bot className="w-8 h-8 text-indigo-500" />
+          <div className="w-14 h-14 bg-terracotta/10 rounded-lg flex items-center justify-center relative">
+            <Bot className="w-8 h-8 text-terracotta" />
             <div className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full" />
           </div>
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-xl font-bold text-slate-900 tracking-tight">NestDirect Guru</h3>
-              <span className="text-[10px] font-black text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100 uppercase tracking-widest">
+              <span className="text-[10px] font-black text-terracotta bg-terracotta/10 px-2 py-0.5 rounded-full border border-terracotta/20 uppercase tracking-widest">
                 AI Agent
               </span>
             </div>
@@ -197,7 +199,7 @@ export default function GuruChatBot({ properties }: GuruChatBotProps) {
         </div>
         <button
           onClick={clearChat}
-          className="w-12 h-12 rounded-2xl bg-slate-50 text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all flex items-center justify-center cursor-pointer"
+          className="w-12 h-12 rounded-lg bg-slate-50 text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all flex items-center justify-center cursor-pointer"
         >
           <Trash2 className="w-5 h-5" />
         </button>
@@ -220,7 +222,7 @@ export default function GuruChatBot({ properties }: GuruChatBotProps) {
                 className={`flex gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
                 id={`guru-item-${msg.id}`}
               >
-                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 shadow-sm ${
+                <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 shadow-sm ${
                   msg.role === 'user' 
                     ? 'bg-slate-900 text-white' 
                     : 'bg-white border border-slate-100 text-slate-400'
@@ -231,12 +233,45 @@ export default function GuruChatBot({ properties }: GuruChatBotProps) {
                 <div className={`space-y-2 max-w-[80%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                   <div className={`p-6 rounded-3xl shadow-sm ${
                     msg.role === 'user'
-                      ? 'bg-indigo-500 text-white rounded-tr-none shadow-indigo-200'
+                      ? 'bg-terracotta text-white rounded-tr-none shadow-terracotta/20'
                       : 'bg-slate-50 border border-slate-100 text-slate-800 rounded-tl-none'
                   }`}>
                     <div className="text-sm font-medium leading-relaxed">
                       {msg.role === 'assistant' ? formatText(msg.text) : <p>{msg.text}</p>}
                     </div>
+
+                    {msg.role === 'assistant' && msg.groundingMetadata?.groundingChunks && msg.groundingMetadata.groundingChunks.length > 0 && (
+                      <div className="mt-4 pt-4 border-t border-slate-200/50 space-y-2">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1">
+                          <MapPin className="w-3.5 h-3.5 text-terracotta animate-pulse" />
+                          Verified Google Maps & Search References
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {msg.groundingMetadata.groundingChunks.map((chunk: any, chunkIdx: number) => {
+                            const isMaps = !!chunk.maps;
+                            const info = chunk.maps || chunk.web;
+                            if (!info) return null;
+                            return (
+                              <a
+                                key={chunkIdx}
+                                href={info.uri}
+                                target="_blank"
+                                referrerPolicy="no-referrer"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/95 hover:bg-terracotta/10 text-slate-600 hover:text-terracotta rounded-lg text-[11px] font-bold border border-slate-200/50 hover:border-terracotta/20 shadow-sm transition-all cursor-pointer"
+                              >
+                                {isMaps ? (
+                                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                                ) : (
+                                  <span className="w-2 h-2 rounded-full bg-terracotta" />
+                                )}
+                                {info.title || 'View Google Maps Link'}
+                              </a>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <p className={`text-[10px] font-bold text-slate-300 px-2 uppercase tracking-widest ${msg.role === 'user' ? 'text-right' : ''}`}>
                     {msg.timestamp}
@@ -253,7 +288,7 @@ export default function GuruChatBot({ properties }: GuruChatBotProps) {
               className="flex gap-4"
               id="guru-writing-loader"
             >
-              <div className="w-10 h-10 rounded-2xl bg-white border border-slate-100 text-slate-400 flex items-center justify-center shrink-0 shadow-sm">
+              <div className="w-10 h-10 rounded-lg bg-white border border-slate-100 text-slate-400 flex items-center justify-center shrink-0 shadow-sm">
                 <Bot className="w-5 h-5 animate-pulse" />
               </div>
               <div className="bg-slate-50 border border-slate-100 p-6 rounded-3xl rounded-tl-none flex items-center gap-3">
@@ -304,7 +339,7 @@ export default function GuruChatBot({ properties }: GuruChatBotProps) {
                       <p className="text-[10px] text-slate-400 font-medium truncate max-w-[180px]">{sug.prompt}</p>
                     </div>
                   </div>
-                  <ArrowRight className="w-5 h-5 text-slate-200 group-hover:text-indigo-500 transform translate-x-2 opacity-0 group-hover:opacity-100 group-hover:translate-x-0 transition-all shrink-0" />
+                  <ArrowRight className="w-5 h-5 text-slate-200 group-hover:text-terracotta transform translate-x-2 opacity-0 group-hover:opacity-100 group-hover:translate-x-0 transition-all shrink-0" />
                 </button>
               ))}
             </div>
@@ -328,7 +363,7 @@ export default function GuruChatBot({ properties }: GuruChatBotProps) {
               onChange={(e) => setInputMessage(e.target.value)}
               placeholder="Ask about Chennai rentals, agreements, or neighborhoods..."
               disabled={isLoading}
-              className="w-full bg-slate-50 border border-slate-100 rounded-[2rem] px-8 py-5 text-sm font-medium focus:ring-4 focus:ring-indigo-500/5 focus:bg-white focus:outline-none transition-all placeholder:text-slate-300"
+              className="w-full bg-slate-50 border border-slate-100 rounded-[2rem] px-8 py-5 text-sm font-medium focus:ring-4 focus:ring-terracotta/5 focus:bg-white focus:outline-none transition-all placeholder:text-slate-300"
             />
             <div className="absolute right-6 top-1/2 -translate-y-1/2 flex items-center gap-2">
               <span className="text-[10px] font-bold text-slate-300 tracking-widest uppercase hidden lg:block">↵ Enter</span>
@@ -348,7 +383,7 @@ export default function GuruChatBot({ properties }: GuruChatBotProps) {
       {/* Footer */}
       <div className="px-10 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
         <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-          <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+          <Sparkles className="w-3.5 h-3.5 text-terracotta" />
           Chennai Grounding Active
         </div>
         <div className="flex items-center gap-2 text-[10px] font-bold text-slate-300 uppercase tracking-widest">

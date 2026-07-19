@@ -11,14 +11,14 @@ import PropertyCardImageCarousel from './components/PropertyCardImageCarousel';
 import { motion, AnimatePresence } from 'motion/react';
 
 // Firebase Integrations & auth listeners
-import { auth, db, signInWithGoogle, logoutUser, syncFavoritesToCloud, OperationType, handleFirestoreError } from './firebase';
+import { auth, db, signInWithGoogle, signInGuestUser, signInWithEmail, signUpWithEmail, logoutUser, syncFavoritesToCloud, OperationType, handleFirestoreError } from './firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
-import { collection, onSnapshot, doc, setDoc, getDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, getDoc, query, where, or } from 'firebase/firestore';
 
 import { 
   Home, Search, Filter, MessageSquare, BookOpen, Heart, 
   MapPin, DollarSign, Building, Sparkles, User, Percent, 
-  ChevronRight, Compass, Shield, Info, Plus,
+  ChevronRight, Compass, Shield, ShieldAlert, Info, Plus,
   Grid, Bell, Check, Loader2, ArrowUpRight, Share2, ClipboardList,
   Map, Bus, Car, Bike, Zap, X, UserCheck, Wifi, Dumbbell
 } from 'lucide-react';
@@ -197,6 +197,14 @@ export default function App() {
     return localStorage.getItem('nestdirect_kyc_verified_v4') === 'true';
   });
 
+  // --- Auth Form States ---
+  const [authTab, setAuthTab] = useState<'quick' | 'signin' | 'signup'>('quick');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authName, setAuthName] = useState('');
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+
   const getPropertyTier = (price: number): 'budget' | 'mid' | 'premium' => {
     if (price < 22000) return 'budget';
     if (price <= 30000) return 'mid';
@@ -235,24 +243,55 @@ export default function App() {
     }
   }, [activePriceTiers, selectedMapNeighborhood]);
 
-  // 🔄 1. Listen to Authentication State
+  // 🔄 1. Listen to Authentication State and User Document in Real-time
   useEffect(() => {
+    let userDocUnsubscribe: (() => void) | null = null;
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
       setIsFirebaseLoading(false);
+
+      if (userDocUnsubscribe) {
+        userDocUnsubscribe();
+        userDocUnsubscribe = null;
+      }
+
       if (user) {
-        // Retrieve cloud favorites if they exist in Firestore
-        try {
-          const userDocRef = doc(db, 'users', user.uid);
-          const userSnap = await getDoc(userDocRef);
-          if (userSnap.exists()) {
-            const data = userSnap.data();
-            if (data && Array.isArray(data.favorites)) {
-              setFavorites(data.favorites);
+        // Listen to the user's specific document in Firestore in real-time
+        const userDocRef = doc(db, 'users', user.uid);
+        userDocUnsubscribe = onSnapshot(userDocRef, (docSnap) => {
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            if (data) {
+              // Functional updates prevent loops and redundant state-change triggers
+              if (Array.isArray(data.favorites)) {
+                setFavorites(prev => {
+                  const isSame = prev.length === data.favorites.length && prev.every((v, i) => v === data.favorites[i]);
+                  return isSame ? prev : data.favorites;
+                });
+              }
+              if (typeof data.onboardingCompleted === 'boolean') {
+                setOnboardingCompleted(prev => {
+                  if (prev !== data.onboardingCompleted) {
+                    localStorage.setItem('nestdirect_onboarding_v4_done', data.onboardingCompleted ? 'true' : 'false');
+                    return data.onboardingCompleted;
+                  }
+                  return prev;
+                });
+              }
+              if (typeof data.isKycVerified === 'boolean') {
+                setIsKycVerified(prev => {
+                  if (prev !== data.isKycVerified) {
+                    localStorage.setItem('nestdirect_kyc_verified_v4', data.isKycVerified ? 'true' : 'false');
+                    return data.isKycVerified;
+                  }
+                  return prev;
+                });
+              }
             }
           }
-        } catch (err: any) {
-          console.warn("Could not retrieve cloud favorites (offline or cache fallback):", err.message || err);
+        }, (err) => {
+          console.warn("Could not retrieve cloud profile fields in real-time:", err.message || err);
           // Safe fallback from local storage
           const savedFavorites = localStorage.getItem('nestdirect_favorites_v4');
           if (savedFavorites) {
@@ -260,10 +299,16 @@ export default function App() {
               setFavorites(JSON.parse(savedFavorites));
             } catch (jsonErr) {}
           }
-        }
+        });
       }
     });
-    return () => unsubscribe();
+
+    return () => {
+      unsubscribe();
+      if (userDocUnsubscribe) {
+        userDocUnsubscribe();
+      }
+    };
   }, []);
 
   // 🔄 2. Listen to Properties in Firestore (Seeds if Firestore is brand new)
@@ -294,7 +339,16 @@ export default function App() {
 
   // 🔄 3. Listen to Inquiries in Firestore
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, 'inquiries'), async (snapshot) => {
+    if (!currentUser) return;
+    const userEmail = currentUser.email || 'anonymous@nestdirect.com';
+    const q = query(
+      collection(db, 'inquiries'),
+      or(
+        where('tenantEmail', '==', userEmail),
+        where('ownerEmail', '==', userEmail)
+      )
+    );
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
       if (snapshot.empty) {
         // Seed starter inquiries
         try {
@@ -309,7 +363,8 @@ export default function App() {
               visitTime: '02:00 PM',
               message: 'Hi Karthik, I love the Skylit penthouse listing! Bypassing agency fees saves me almost ₹35,000 upfront. Ready to visit tomorrow!',
               status: 'pending',
-              createdAt: new Date().toISOString()
+              createdAt: new Date().toISOString(),
+              ownerEmail: 'karthik.s@nestdirect-verified.in'
             }
           ];
           for (const inq of starterInquiries) {
@@ -329,11 +384,20 @@ export default function App() {
       handleFirestoreError(error, OperationType.GET, 'inquiries');
     });
     return () => unsubscribe();
-  }, []);
+  }, [currentUser]);
 
   // 🔄 4. Listen to Chat Messages in Firestore
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, 'chat_messages'), async (snapshot) => {
+    if (!currentUser) return;
+    const userEmail = currentUser.email || 'anonymous@nestdirect.com';
+    const q = query(
+      collection(db, 'chat_messages'),
+      or(
+        where('tenantEmail', '==', userEmail),
+        where('ownerEmail', '==', userEmail)
+      )
+    );
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
       if (snapshot.empty) {
         try {
           const starterMessages = [
@@ -342,14 +406,18 @@ export default function App() {
               propertyId: 'prop-1',
               sender: 'owner',
               text: 'Hi Alex! Thanks for contacting me about my top floor penthouse directly. Since there are no brokers involved, the lease is highly flexible. When would you like to tour?',
-              timestamp: '10:14 AM'
+              timestamp: '10:14 AM',
+              tenantEmail: 'bennymax@gmail.com',
+              ownerEmail: 'karthik.s@nestdirect-verified.in'
             },
             {
               id: 'msg-start-2',
               propertyId: 'prop-1',
               sender: 'tenant',
               text: 'Hello Karthik! Bypassing administrative surcharges is amazing. I can visit tomorrow around 2:00 PM if that works for you.',
-              timestamp: '10:20 AM'
+              timestamp: '10:20 AM',
+              tenantEmail: 'bennymax@gmail.com',
+              ownerEmail: 'karthik.s@nestdirect-verified.in'
             }
           ];
           for (const msg of starterMessages) {
@@ -371,7 +439,7 @@ export default function App() {
       handleFirestoreError(error, OperationType.GET, 'chat_messages');
     });
     return () => unsubscribe();
-  }, []);
+  }, [currentUser]);
 
   // 🔄 5. Sync Local Favorites to user document when logged in
   useEffect(() => {
@@ -379,6 +447,24 @@ export default function App() {
       syncFavoritesToCloud(currentUser.uid, favorites);
     }
   }, [favorites, currentUser]);
+
+  // 🔄 6. Sync Onboarding and KYC states to user document when logged in
+  useEffect(() => {
+    if (currentUser) {
+      const syncUserState = async () => {
+        try {
+          const userDocRef = doc(db, 'users', currentUser.uid);
+          await setDoc(userDocRef, {
+            onboardingCompleted,
+            isKycVerified
+          }, { merge: true });
+        } catch (e) {
+          console.warn("Could not sync onboarding/KYC state to user profile:", e);
+        }
+      };
+      syncUserState();
+    }
+  }, [currentUser, onboardingCompleted, isKycVerified]);
 
   // Sync to local storage
   useEffect(() => {
@@ -488,6 +574,24 @@ export default function App() {
     }
   };
 
+  const handleTogglePropertyStatus = async (propertyId: string) => {
+    const prop = properties.find(p => p.id === propertyId);
+    if (!prop) return;
+    const isCurrentlyAvailable = prop.status !== 'occupied';
+    const newStatus: 'available' | 'occupied' = isCurrentlyAvailable ? 'occupied' : 'available';
+    const updatedProp: Property = {
+      ...prop,
+      status: newStatus
+    };
+    try {
+      await setDoc(doc(db, 'properties', propertyId), updatedProp);
+      showToast(`Property "${prop.title}" is now marked as ${newStatus}!`);
+    } catch (e) {
+      setProperties(prev => prev.map(p => p.id === propertyId ? updatedProp : p));
+      handleFirestoreError(e, OperationType.WRITE, `properties/${propertyId}`);
+    }
+  };
+
   const handleStartChat = (propertyId: string) => {
     setActivePropertyChatId(propertyId);
     setSelectedPropertyId(null); // Close drawer
@@ -506,20 +610,22 @@ export default function App() {
   };
 
   const handleSendMessage = async (propertyId: string, text: string) => {
+    // Check if the user is replying as tenant or landlord
+    const property = properties.find(p => p.id === propertyId);
+    const isUserOwner = property?.ownerName.includes('(You)') || (currentUser && property?.ownerEmail === currentUser.email);
+    const activeEmail = currentUser?.email || 'anonymous@nestdirect.com';
+
     const newMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
       propertyId,
-      sender: 'tenant',
+      sender: isUserOwner ? 'owner' : 'tenant',
       text,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      tenantEmail: isUserOwner 
+        ? (chatMessages.find(m => m.propertyId === propertyId && m.tenantEmail)?.tenantEmail || 'bennymax@gmail.com')
+        : activeEmail,
+      ownerEmail: property?.ownerEmail || 'karthik.s@nestdirect-verified.in'
     };
-    
-    // Check if the user is replying as tenant or landlord
-    const property = properties.find(p => p.id === propertyId);
-    const isUserOwner = property?.ownerName.includes('(You)');
-    if (isUserOwner) {
-      newMsg.sender = 'owner';
-    }
 
     try {
       await setDoc(doc(db, 'chat_messages', newMsg.id), newMsg);
@@ -548,7 +654,8 @@ export default function App() {
           visitTime: '02:00 PM',
           message: 'Hi Karthik, I love the Skylit penthouse listing! Bypassing agency fees saves me almost ₹35,000 upfront. Ready to visit tomorrow!',
           status: 'pending',
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
+          ownerEmail: 'karthik.s@nestdirect-verified.in'
         }
       ];
       for (const inq of starterInquiries) {
@@ -561,14 +668,18 @@ export default function App() {
           propertyId: 'prop-1',
           sender: 'owner',
           text: 'Hi Alex! Thanks for contacting me about my top floor penthouse directly. Since there are no brokers involved, the lease is highly flexible. When would you like to tour?',
-          timestamp: '10:14 AM'
+          timestamp: '10:14 AM',
+          tenantEmail: 'bennymax@gmail.com',
+          ownerEmail: 'karthik.s@nestdirect-verified.in'
         },
         {
           id: 'msg-start-2',
           propertyId: 'prop-1',
           sender: 'tenant',
           text: 'Hello Karthik! Bypassing administrative surcharges is amazing. I can visit tomorrow around 2:00 PM if that works for you.',
-          timestamp: '10:20 AM'
+          timestamp: '10:20 AM',
+          tenantEmail: 'bennymax@gmail.com',
+          ownerEmail: 'karthik.s@nestdirect-verified.in'
         }
       ];
       for (const msg of starterMessages) {
@@ -668,7 +779,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#FAFAFC] text-[#1A1D1F] font-sans antialiased" id="nestdirect-app-scope">
+    <div className="min-h-screen bg-[#F6F3EC] text-[#1A1D1F] font-sans antialiased" id="nestdirect-app-scope">
       
       {/* 🚀 TOAST ALERTS */}
       <AnimatePresence>
@@ -677,9 +788,9 @@ export default function App() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
-            className="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-[#1A1D1F] text-white px-6 py-4 rounded-2xl shadow-2xl z-[100] flex items-center gap-3 backdrop-blur-xl"
+            className="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-[#1A1D1F] text-white px-6 py-4 rounded-xl shadow-2xl z-[100] flex items-center gap-3 backdrop-blur-xl"
           >
-            <Sparkles className="w-5 h-5 text-blue-400 shrink-0" />
+            <Sparkles className="w-5 h-5 text-terracotta/70 shrink-0" />
             <span className="text-sm font-semibold tracking-tight">{toastMessage}</span>
           </motion.div>
         )}
@@ -692,8 +803,19 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-[#FAFAFC] flex items-center justify-center p-4 sm:p-8 z-[90] overflow-y-auto"
+            className="fixed inset-0 bg-[#F6F3EC] flex items-center justify-center p-4 sm:p-8 z-[90] overflow-y-auto"
           >
+            {/* If onboarding was already completed before, allow canceling the login screen */}
+            {localStorage.getItem('nestdirect_onboarding_v4_done') === 'true' && (
+              <button 
+                onClick={() => setOnboardingCompleted(true)}
+                className="absolute top-6 right-6 p-3 bg-white hover:bg-slate-100 border border-slate-200 rounded-full shadow-lg transition-all text-slate-500 hover:text-black z-[100] cursor-pointer"
+                title="Go Back"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            )}
+
             <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
               {/* Product Preview */}
               <motion.div 
@@ -716,50 +838,267 @@ export default function App() {
                 initial={{ x: 50, opacity: 0 }}
                 animate={{ x: 0, opacity: 1 }}
                 transition={{ delay: 0.3 }}
-                className="space-y-10"
+                className="space-y-6"
               >
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3 text-blue-600">
-                    <Home className="w-8 h-8" />
-                    <span className="text-xl font-black font-display tracking-tight text-[#1A1D1F]">NestDirect</span>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3 text-ink">
+                    <Home className="w-8 h-8 text-terracotta" strokeWidth={1.5} />
+                    <span className="text-xl font-bold font-display tracking-tight text-ink">NestDirect</span>
                   </div>
-                  <h1 className="text-5xl font-black font-display tracking-tight leading-[1.1]">The future of <span className="text-blue-600">renting</span> is direct</h1>
-                  <p className="text-slate-500 text-lg font-medium max-w-md">Connect with property owners without intermediaries. Save time, money, and hassle.</p>
+                  <h1 className="text-4xl font-bold font-display tracking-tight leading-[1.1] text-ink">Direct renting <span className="text-terracotta">without fees</span></h1>
+                  <p className="text-stone-500 text-sm font-medium max-w-md">Connect securely with verified property owners in Chennai. Save up to ₹50,000 in broker charges.</p>
                 </div>
 
-                <div className="space-y-4">
-                  <button
-                    onClick={async () => {
-                      const user = await signInWithGoogle();
-                      if (user) {
-                        localStorage.setItem('nestdirect_onboarding_v4_done', 'true');
-                        setOnboardingCompleted(true);
+                {/* Authentication Tabs */}
+                <div className="bg-white border border-stone-200 shadow-premium rounded-lg p-6 space-y-6">
+                  <div className="flex border-b border-stone-100 pb-3 gap-2">
+                    <button
+                      onClick={() => { setAuthTab('quick'); setAuthError(null); }}
+                      className={`flex-1 pb-2 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer text-center ${authTab === 'quick' ? 'border-b-2 border-terracotta text-terracotta' : 'border-transparent text-stone-400 hover:text-stone-700'}`}
+                    >
+                      Quick Access
+                    </button>
+                    <button
+                      onClick={() => { setAuthTab('signin'); setAuthError(null); }}
+                      className={`flex-1 pb-2 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer text-center ${authTab === 'signin' ? 'border-b-2 border-terracotta text-terracotta' : 'border-transparent text-stone-400 hover:text-stone-700'}`}
+                    >
+                      Sign In
+                    </button>
+                    <button
+                      onClick={() => { setAuthTab('signup'); setAuthError(null); }}
+                      className={`flex-1 pb-2 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer text-center ${authTab === 'signup' ? 'border-b-2 border-terracotta text-terracotta' : 'border-transparent text-stone-400 hover:text-stone-700'}`}
+                    >
+                      Register
+                    </button>
+                  </div>
+
+                  {authError && (
+                    <div className="bg-red-50 border border-red-100 text-red-600 text-xs p-4 rounded-sm font-medium flex gap-2.5 items-start">
+                      <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5 text-red-500" />
+                      <span>{authError}</span>
+                    </div>
+                  )}
+
+                  {/* TAB 1: QUICK ACCESS */}
+                  {authTab === 'quick' && (
+                    <div className="space-y-4">
+                      <button
+                        disabled={isAuthenticating}
+                        onClick={async () => {
+                          setIsAuthenticating(true);
+                          setAuthError(null);
+                          try {
+                            const user = await signInWithGoogle();
+                            if (user) {
+                              localStorage.setItem('nestdirect_onboarding_v4_done', 'true');
+                              setOnboardingCompleted(true);
+                              showToast(`Welcome, ${user.displayName || 'Guest'}`);
+                            }
+                          } catch (error: any) {
+                            console.warn("Google sign-in popup error context:", error);
+                            let cleanMsg = error?.message || String(error);
+                            if (cleanMsg.includes('popup-blocked') || cleanMsg.includes('cancelled-popup-request') || cleanMsg.includes('popup-closed-by-user')) {
+                              setAuthError("Google Login popup was blocked or closed by your browser inside this preview frame. Please use the 'Instant Guest Access' button below or Email tabs to log in instantly!");
+                            } else {
+                              setAuthError(`Google Sign-In failed: ${cleanMsg}`);
+                            }
+                          } finally {
+                            setIsAuthenticating(false);
+                          }
+                        }}
+                        className="w-full h-12 bg-ink hover:bg-ink/90 text-white rounded-sm font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-3 transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        {isAuthenticating ? <Loader2 className="w-4 h-4 animate-spin" /> : <User className="w-4 h-4 text-brass" />}
+                        Continue with Google
+                      </button>
+
+                      <div className="relative flex py-2 items-center">
+                        <div className="flex-grow border-t border-stone-150"></div>
+                        <span className="flex-shrink mx-4 text-[9px] text-stone-400 font-bold uppercase tracking-widest">Or instant guest mode</span>
+                        <div className="flex-grow border-t border-stone-150"></div>
+                      </div>
+
+                      <button
+                        disabled={isAuthenticating}
+                        onClick={async () => {
+                          setIsAuthenticating(true);
+                          setAuthError(null);
+                          try {
+                            const user = await signInGuestUser();
+                            if (user) {
+                              localStorage.setItem('nestdirect_onboarding_v4_done', 'true');
+                              setOnboardingCompleted(true);
+                              showToast("Logged in as Guest User successfully!");
+                            }
+                          } catch (error: any) {
+                            setAuthError(`Guest Access failed: ${error?.message || error}`);
+                          } finally {
+                            setIsAuthenticating(false);
+                          }
+                        }}
+                        className="w-full h-12 bg-parchment hover:bg-stone-200/50 text-ink rounded-sm font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-3 transition-all border border-stone-300 cursor-pointer disabled:opacity-50"
+                      >
+                        {isAuthenticating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4 text-terracotta" />}
+                        Instant Guest Access (One-Click)
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          localStorage.setItem('nestdirect_onboarding_v4_done', 'true');
+                          setOnboardingCompleted(true);
+                          showToast("Browsing preview with local fallback");
+                        }}
+                        className="w-full text-center text-xs text-slate-400 hover:text-slate-600 font-bold underline transition-all pt-2"
+                      >
+                        Continue browsing as offline visitor
+                      </button>
+                    </div>
+                  )}
+
+                  {/* TAB 2: EMAIL LOGIN */}
+                  {authTab === 'signin' && (
+                    <form onSubmit={async (e) => {
+                      e.preventDefault();
+                      if (!authEmail || !authPassword) {
+                         setAuthError("Please fill in all fields.");
+                         return;
                       }
-                    }}
-                    className="w-full h-16 bg-[#1A1D1F] hover:bg-black text-white rounded-2xl font-bold flex items-center justify-center gap-4 transition-all shadow-xl hover:scale-[1.01] active:scale-[0.99] cursor-pointer"
-                  >
-                    <User className="w-5 h-5 text-blue-400" />
-                    Continue with Google
-                  </button>
-                  <button
-                    onClick={() => {
-                      localStorage.setItem('nestdirect_onboarding_v4_done', 'true');
-                      setOnboardingCompleted(true);
-                    }}
-                    className="w-full h-16 bg-white border border-slate-200 hover:bg-slate-50 text-[#1A1D1F] rounded-2xl font-bold transition-all cursor-pointer"
-                  >
-                    Explore as Guest
-                  </button>
+                      setIsAuthenticating(true);
+                      setAuthError(null);
+                      try {
+                        const user = await signInWithEmail(authEmail, authPassword);
+                        if (user) {
+                          localStorage.setItem('nestdirect_onboarding_v4_done', 'true');
+                          setOnboardingCompleted(true);
+                          showToast(`Welcome back, ${user.displayName || 'User'}`);
+                        }
+                      } catch (error: any) {
+                        let msg = error?.message || "Login failed";
+                        if (msg.includes("auth/invalid-credential") || msg.includes("auth/wrong-password") || msg.includes("auth/user-not-found")) {
+                          msg = "Invalid email or password. Please verify your details or use Guest access.";
+                        } else if (msg.includes("auth/invalid-email")) {
+                          msg = "Invalid email format. E.g. example@gmail.com";
+                        }
+                        setAuthError(msg);
+                      } finally {
+                        setIsAuthenticating(false);
+                      }
+                    }} className="space-y-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Email Address</label>
+                        <input
+                          type="email"
+                          placeholder="yourname@gmail.com"
+                          value={authEmail}
+                          onChange={(e) => setAuthEmail(e.target.value)}
+                          className="w-full h-12 px-4 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-terracotta transition-all font-medium"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Password</label>
+                        <input
+                          type="password"
+                          placeholder="••••••••"
+                          value={authPassword}
+                          onChange={(e) => setAuthPassword(e.target.value)}
+                          className="w-full h-12 px-4 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-terracotta transition-all font-medium"
+                          required
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={isAuthenticating}
+                        className="w-full h-12 bg-[#1A1D1F] hover:bg-black text-white rounded-lg font-bold flex items-center justify-center gap-3 transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        {isAuthenticating ? <Loader2 className="w-5 h-5 animate-spin" /> : "Sign In with Email"}
+                      </button>
+                    </form>
+                  )}
+
+                  {/* TAB 3: REGISTER */}
+                  {authTab === 'signup' && (
+                    <form onSubmit={async (e) => {
+                      e.preventDefault();
+                      if (!authName || !authEmail || !authPassword) {
+                        setAuthError("All fields are required.");
+                        return;
+                      }
+                      setIsAuthenticating(true);
+                      setAuthError(null);
+                      try {
+                        const user = await signUpWithEmail(authEmail, authPassword, authName);
+                        if (user) {
+                          localStorage.setItem('nestdirect_onboarding_v4_done', 'true');
+                          setOnboardingCompleted(true);
+                          showToast(`Account created! Welcome, ${authName}`);
+                        }
+                      } catch (error: any) {
+                        let msg = error?.message || "Registration failed";
+                        if (msg.includes("auth/email-already-in-use")) {
+                          msg = "This email is already in use. Please sign in instead.";
+                        } else if (msg.includes("auth/weak-password")) {
+                          msg = "Weak password. It must be at least 6 characters.";
+                        } else if (msg.includes("auth/invalid-email")) {
+                          msg = "Invalid email format. E.g. example@gmail.com";
+                        }
+                        setAuthError(msg);
+                      } finally {
+                        setIsAuthenticating(false);
+                      }
+                    }} className="space-y-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Full Name</label>
+                        <input
+                          type="text"
+                          placeholder="Alex Mercer"
+                          value={authName}
+                          onChange={(e) => setAuthName(e.target.value)}
+                          className="w-full h-12 px-4 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-terracotta transition-all font-medium"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Email Address</label>
+                        <input
+                          type="email"
+                          placeholder="alex.mercer@gmail.com"
+                          value={authEmail}
+                          onChange={(e) => setAuthEmail(e.target.value)}
+                          className="w-full h-12 px-4 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-terracotta transition-all font-medium"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Password (min 6 chars)</label>
+                        <input
+                          type="password"
+                          placeholder="••••••••"
+                          value={authPassword}
+                          onChange={(e) => setAuthPassword(e.target.value)}
+                          className="w-full h-12 px-4 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-terracotta transition-all font-medium"
+                          required
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={isAuthenticating}
+                        className="w-full h-12 bg-[#1A1D1F] hover:bg-black text-white rounded-lg font-bold flex items-center justify-center gap-3 transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        {isAuthenticating ? <Loader2 className="w-5 h-5 animate-spin" /> : "Create Account"}
+                      </button>
+                    </form>
+                  )}
                 </div>
 
-                <div className="pt-10 border-t border-slate-100 flex items-center gap-8">
+                <div className="pt-4 border-t border-slate-100 flex items-center gap-8">
                   <div>
-                    <p className="text-2xl font-black font-display">1.2k+</p>
-                    <p className="text-slate-400 text-sm font-bold uppercase tracking-wider">Properties</p>
+                    <p className="text-xl font-bold font-mono text-slate-700">1.2k+</p>
+                    <p className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">Properties</p>
                   </div>
                   <div>
-                    <p className="text-2xl font-black font-display">₹10M+</p>
-                    <p className="text-slate-400 text-sm font-bold uppercase tracking-wider">Saved in Fees</p>
+                    <p className="text-xl font-bold font-mono text-slate-700">₹10M+</p>
+                    <p className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">Saved in Fees</p>
                   </div>
                 </div>
               </motion.div>
@@ -769,14 +1108,14 @@ export default function App() {
       </AnimatePresence>
 
       {/* 🖥️ NAVIGATION */}
-      <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-xl border-b border-slate-100">
+      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-xl border-b border-stone-200/50">
         <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
           <div className="flex items-center gap-12">
             <div className="flex items-center gap-3 cursor-pointer" onClick={() => setWebActiveSection('browse')}>
-              <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-600/20">
-                <Home className="w-6 h-6" />
+              <div className="w-9 h-9 bg-ink rounded-sm flex items-center justify-center text-white shadow-md transition-transform duration-300 hover:scale-105">
+                <Home className="w-4.5 h-4.5" strokeWidth={1.5} />
               </div>
-              <span className="text-xl font-black font-display tracking-tight">NestDirect</span>
+              <span className="text-xl font-bold font-display tracking-tight text-ink">NestDirect</span>
             </div>
 
             <nav className="hidden md:flex items-center gap-8">
@@ -790,12 +1129,18 @@ export default function App() {
                 <button
                   key={item.id}
                   onClick={() => setWebActiveSection(item.id as any)}
-                  className={`flex items-center gap-2.5 text-sm font-bold transition-all font-display ${
-                    webActiveSection === item.id ? 'text-blue-600' : 'text-slate-500 hover:text-[#1A1D1F]'
+                  className={`flex items-center gap-2 text-xs font-bold uppercase tracking-wider transition-all font-sans relative py-1.5 ${
+                    webActiveSection === item.id ? 'text-terracotta' : 'text-stone-500 hover:text-ink'
                   }`}
                 >
-                  <item.icon className="w-4.5 h-4.5" />
+                  <item.icon className="w-3.5 h-3.5 shrink-0" strokeWidth={1.5} />
                   {item.label}
+                  {webActiveSection === item.id && (
+                    <motion.div 
+                      layoutId="activeTabUnderline" 
+                      className="absolute bottom-0 left-0 right-0 h-[2px] bg-terracotta rounded-full" 
+                    />
+                  )}
                 </button>
               ))}
             </nav>
@@ -803,20 +1148,33 @@ export default function App() {
 
           <div className="flex items-center gap-4">
             {currentUser ? (
-              <div className="flex items-center gap-3 pl-4 border-l border-slate-100">
+              <div className="flex items-center gap-3 pl-4 border-l border-stone-200">
                 <div className="text-right hidden sm:block">
-                  <p className="text-sm font-bold leading-none">{currentUser.displayName?.split(' ')[0]}</p>
-                  <p className="text-[10px] text-blue-600 font-bold uppercase tracking-wider mt-1">Verified User</p>
+                  <p className="text-xs font-bold leading-none text-stone-800">{currentUser.displayName?.split(' ')[0]}</p>
+                  <p className="text-[9px] text-brass font-extrabold uppercase tracking-widest mt-1">Verified Tenant</p>
                 </div>
-                <img src={currentUser.photoURL || ''} className="w-10 h-10 rounded-full border-2 border-white shadow-sm" alt="" />
-                <button onClick={() => logoutUser()} className="p-2.5 bg-slate-100 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-xl transition-all">
+                <img src={currentUser.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=150'} className="w-9 h-9 rounded-full border-2 border-white shadow-md object-cover" alt="" />
+                <button 
+                  onClick={async () => {
+                    await logoutUser();
+                    localStorage.removeItem('nestdirect_onboarding_v4_done');
+                    setOnboardingCompleted(false);
+                    showToast("Signed out successfully");
+                  }} 
+                  className="p-2 bg-stone-100 hover:bg-rose-50 text-stone-400 hover:text-rose-600 rounded-sm transition-all cursor-pointer"
+                  title="Sign Out"
+                >
                   <X className="w-4 h-4" />
                 </button>
               </div>
             ) : (
               <button 
-                onClick={() => signInWithGoogle()}
-                className="bg-[#1A1D1F] hover:bg-black text-white px-6 py-2.5 rounded-xl font-bold text-sm tracking-tight transition-all active:scale-95"
+                onClick={() => {
+                  setOnboardingCompleted(false);
+                  setAuthTab('quick');
+                  setAuthError(null);
+                }}
+                className="bg-ink hover:bg-ink/90 text-white px-5 py-2 rounded-sm font-bold text-xs uppercase tracking-wider transition-all active:scale-95 cursor-pointer"
               >
                 Sign In
               </button>
@@ -827,68 +1185,74 @@ export default function App() {
 
       <main className="max-w-7xl mx-auto px-6 py-12" id="web-dashboard-layout">
         {webActiveSection === 'browse' && (
-          <div className="space-y-16 animate-fadeIn">
+          <div className="space-y-12 animate-fadeIn">
             {/* HERO SECTION */}
-            <section className="relative overflow-hidden rounded-[3rem] bg-[#1A1D1F] p-8 md:p-16 lg:p-24 shadow-premium">
+            <section className="relative overflow-hidden rounded-[2.5rem] bg-[#12141C] p-8 md:p-14 lg:p-20 shadow-xl border border-white/5">
               <motion.div 
-                initial={{ opacity: 0, scale: 1.1 }}
-                animate={{ opacity: 0.3, scale: 1 }}
+                initial={{ opacity: 0, scale: 1.05 }}
+                animate={{ opacity: 0.22, scale: 1 }}
                 className="absolute inset-0 pointer-events-none"
               >
                 <img src="https://images.unsplash.com/photo-1600585154340-be6199f7f009?auto=format&fit=crop&q=80&w=1200" className="w-full h-full object-cover" alt="" />
               </motion.div>
-              <div className="absolute inset-0 bg-gradient-to-r from-black/60 to-transparent pointer-events-none" />
+              <div className="absolute inset-0 bg-gradient-to-r from-neutral-950/80 to-transparent pointer-events-none" />
 
-              <div className="relative z-10 space-y-12">
-                <div className="space-y-6">
+              <div className="relative z-10 space-y-10">
+                <div className="space-y-4">
                   <motion.div 
-                    initial={{ y: 20, opacity: 0 }}
+                    initial={{ y: 15, opacity: 0 }}
                     animate={{ y: 0, opacity: 1 }}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 rounded-full text-white text-[10px] font-bold uppercase tracking-widest"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-brass/15 border border-brass/30 rounded-full text-brass text-[10px] font-extrabold uppercase tracking-widest"
                   >
-                    <Sparkles className="w-4 h-4" />
-                    Trusted by 10,000+ Tenants
+                    <Sparkles className="w-3.5 h-3.5 text-brass" />
+                    Trusted by 10k+ verified tenants & owners
                   </motion.div>
                   <motion.h2 
-                    initial={{ y: 20, opacity: 0 }}
+                    initial={{ y: 15, opacity: 0 }}
                     animate={{ y: 0, opacity: 1 }}
-                    transition={{ delay: 0.1 }}
-                    className="text-5xl md:text-7xl font-black font-display text-white leading-tight max-w-2xl"
+                    transition={{ delay: 0.08 }}
+                    className="text-4xl md:text-6xl font-black font-display text-white leading-tight max-w-2xl tracking-tight"
                   >
-                    Find your <span className="text-blue-500">perfect</span> home away from home
+                    Discover Your Perfect Space. <span className="text-terracotta">Direct From Owners.</span>
                   </motion.h2>
                 </div>
 
-                {/* SEARCH BAR (Bento Style) */}
+                {/* SEARCH BAR (Dribbble High-End Inline Console) */}
                 <motion.div 
-                  initial={{ y: 30, opacity: 0 }}
+                  initial={{ y: 20, opacity: 0 }}
                   animate={{ y: 0, opacity: 1 }}
-                  transition={{ delay: 0.2 }}
-                  className="bg-white p-3 rounded-[2.5rem] shadow-2xl flex flex-col md:flex-row items-center gap-2 max-w-4xl"
+                  transition={{ delay: 0.15 }}
+                  className="bg-white p-3.5 rounded-[2rem] shadow-xl flex flex-col md:flex-row items-center gap-2 max-w-4xl border border-slate-100"
                 >
-                  <div className="flex-1 flex items-center gap-4 pl-6 w-full h-16 md:h-auto">
-                    <Search className="w-6 h-6 text-slate-300" />
-                    <input 
-                      type="text" 
-                      placeholder="Search by location, neighborhood..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full bg-transparent border-none text-[#1A1D1F] font-bold placeholder-slate-400 focus:outline-none text-lg"
-                    />
+                  <div className="flex-1 flex items-center gap-4 pl-5 w-full h-14 md:h-auto">
+                    <Search className="w-5 h-5 text-terracotta" />
+                    <div className="flex flex-col flex-grow text-left">
+                      <span className="text-[9px] font-extrabold text-terracotta uppercase tracking-widest leading-none mb-1">Where to live</span>
+                      <input 
+                        type="text" 
+                        placeholder="Search neighborhood or property..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full bg-transparent border-none text-[#1A1D1F] font-bold placeholder-slate-400 focus:outline-none text-base"
+                      />
+                    </div>
                   </div>
-                  <div className="hidden md:block w-px h-10 bg-slate-100 mx-2" />
-                  <div className="flex-1 hidden md:flex items-center gap-4 px-6">
-                    <MapPin className="w-6 h-6 text-slate-300" />
-                    <select 
-                      value={selectedCity}
-                      onChange={(e) => setSelectedCity(e.target.value)}
-                      className="bg-transparent border-none text-[#1A1D1F] font-bold focus:outline-none text-base cursor-pointer w-full"
-                    >
-                      {['All', 'Adyar', 'Nungambakkam', 'OMR', 'Mylapore'].map(c => <option key={c} value={c}>{c === 'All' ? 'Everywhere' : c}</option>)}
-                    </select>
+                  <div className="hidden md:block w-px h-10 bg-slate-150 mx-2" />
+                  <div className="flex-1 hidden md:flex items-center gap-4 px-4">
+                    <MapPin className="w-5 h-5 text-sage" />
+                    <div className="flex flex-col flex-grow text-left">
+                      <span className="text-[9px] font-extrabold text-terracotta uppercase tracking-widest leading-none mb-1">Select zone</span>
+                      <select 
+                        value={selectedCity}
+                        onChange={(e) => setSelectedCity(e.target.value)}
+                        className="bg-transparent border-none text-[#1A1D1F] font-bold focus:outline-none text-base cursor-pointer w-full"
+                      >
+                        {['All', 'Adyar', 'Nungambakkam', 'OMR', 'Mylapore'].map(c => <option key={c} value={c}>{c === 'All' ? 'Everywhere' : c}</option>)}
+                      </select>
+                    </div>
                   </div>
-                  <button className="w-full md:w-auto h-16 md:h-14 px-10 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-[2rem] transition-all transform hover:scale-105 active:scale-95 shadow-lg shadow-blue-600/30">
-                    Search
+                  <button className="w-full md:w-auto h-14 px-10 bg-[#12141C] hover:bg-terracotta text-white font-bold rounded-xl transition-all duration-300 transform hover:scale-102 active:scale-98 shadow-md">
+                    Explore
                   </button>
                 </motion.div>
               </div>
@@ -896,15 +1260,15 @@ export default function App() {
 
             {/* QUICK FILTERS */}
             <section className="flex flex-wrap items-center justify-between gap-6">
-              <div className="flex flex-wrap items-center gap-3">
+              <div className="flex flex-wrap items-center gap-2.5">
                 {['All', 'Apartment', 'House', 'Villa', 'Studio'].map((type) => (
                   <button
                     key={type}
                     onClick={() => setSelectedType(type)}
-                    className={`px-6 py-3 rounded-2xl text-sm font-bold border transition-all ${
+                    className={`px-5 py-2.5 rounded-lg text-xs font-bold transition-all border ${
                       selectedType === type 
-                        ? 'bg-[#1A1D1F] text-white border-[#1A1D1F]' 
-                        : 'bg-white text-slate-600 border-slate-100 hover:border-slate-200'
+                        ? 'bg-[#12141C] text-white border-[#12141C] shadow-md' 
+                        : 'bg-white text-slate-600 border-slate-200/60 hover:bg-slate-50'
                     }`}
                   >
                     {type}
@@ -912,11 +1276,11 @@ export default function App() {
                 ))}
               </div>
 
-              <div className="flex items-center gap-4">
-                <span className="text-sm font-bold text-slate-400">Sort by:</span>
-                <div className="bg-white border border-slate-100 rounded-2xl px-5 py-3 text-sm font-bold flex items-center gap-3 cursor-pointer">
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Sort by:</span>
+                <div className="bg-white border border-slate-200/60 rounded-lg px-4 py-2.5 text-xs font-bold flex items-center gap-3 cursor-pointer hover:bg-slate-50 transition-all text-slate-700">
                   Newest Listings
-                  <ChevronRight className="w-4 h-4 rotate-90 text-slate-300" />
+                  <ChevronRight className="w-4 h-4 rotate-90 text-slate-400" />
                 </div>
               </div>
             </section>
@@ -929,47 +1293,47 @@ export default function App() {
                   initial={{ opacity: 0, y: 15 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.1 }}
-                  className="bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-700 rounded-[2.5rem] p-8 text-white flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden shadow-xl shadow-blue-500/10"
+                  className="bg-gradient-to-r from-ink via-ink-light to-terracotta-dark rounded-[2rem] p-8 text-white flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden shadow-lg"
                 >
                   <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full blur-3xl -mr-20 -mt-20" />
-                  <div className="absolute bottom-0 left-0 w-48 h-48 bg-blue-500/10 rounded-full blur-2xl -ml-16 -mb-16" />
+                  <div className="absolute bottom-0 left-0 w-48 h-48 bg-terracotta/10 rounded-full blur-2xl -ml-16 -mb-16" />
                   
                   <div className="flex items-center gap-5 relative z-10">
-                    <div className="w-16 h-16 bg-white/10 backdrop-blur-md rounded-2xl flex items-center justify-center text-white shrink-0 border border-white/10 shadow-lg">
-                      <Plus className="w-10 h-10" />
+                    <div className="w-14 h-14 bg-white/10 backdrop-blur-md rounded-lg flex items-center justify-center text-white shrink-0 border border-white/15 shadow-md">
+                      <Plus className="w-8 h-8" />
                     </div>
                     <div className="space-y-1 text-left">
-                      <span className="inline-block bg-blue-500 text-white text-[10px] uppercase font-bold tracking-widest px-3 py-1 rounded-full border border-white/10">No Brokerage</span>
-                      <h4 className="text-xl font-black font-display tracking-tight leading-tight mt-1">Rent Custom Listings Direct from Owners</h4>
-                      <p className="text-sm text-white/70 font-medium">Bypass fees completely. Connect directly with verified office-goers and list units instantly.</p>
+                      <span className="inline-block bg-white/15 text-brass text-[9px] uppercase font-bold tracking-widest px-3 py-1 rounded-full border border-white/10">Zero Commission</span>
+                      <h4 className="text-lg font-bold font-display tracking-tight leading-tight mt-1">List & Rent Units Direct from Owners</h4>
+                      <p className="text-xs text-white/70 font-medium">Connect directly to avoid middlemen. Save massive sums on broker deposits.</p>
                     </div>
                   </div>
                   
                   <button 
                     onClick={() => setWebActiveSection('owner')}
-                    className="bg-white hover:bg-slate-50 text-slate-900 px-8 py-4 rounded-2xl text-xs font-black uppercase tracking-widest whitespace-nowrap transition-all shadow-md active:scale-95 cursor-pointer relative z-10 font-sans"
+                    className="bg-white hover:bg-slate-50 text-slate-900 px-6 py-3.5 rounded-lg text-xs font-black uppercase tracking-wider whitespace-nowrap transition-all shadow-md active:scale-95 cursor-pointer relative z-10"
                   >
-                    List Your Unit Now
+                    List Unit Now
                   </button>
                 </motion.div>
 
                 <div className="flex items-end justify-between">
                   <div className="space-y-1">
-                    <h3 className="text-3xl font-black font-display tracking-tight text-[#1A1D1F]">Featured Properties</h3>
-                    <p className="text-slate-500 font-medium">{filteredProperties.length} handpicked listings for you in {selectedCity}</p>
+                    <h3 className="text-2xl font-bold font-display tracking-tight text-[#1A1D1F]">Handpicked Properties</h3>
+                    <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">{filteredProperties.length} Verified direct units in {selectedCity === 'All' ? 'Chennai' : selectedCity}</p>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <button className="p-3 bg-white border border-slate-100 rounded-xl hover:bg-slate-50 transition-all shadow-sm">
-                      <Grid className="w-5 h-5 text-slate-400" />
+                  <div className="flex items-center gap-2">
+                    <button className="p-2.5 bg-white border border-slate-200/60 rounded-lg hover:bg-slate-50 transition-all shadow-sm">
+                      <Grid className="w-4 h-4 text-slate-400" />
                     </button>
-                    <button className="p-3 bg-white border border-slate-100 rounded-xl hover:bg-slate-50 transition-all shadow-sm">
-                      <Map className="w-5 h-5 text-slate-400" />
+                    <button className="p-2.5 bg-white border border-slate-200/60 rounded-lg hover:bg-slate-50 transition-all shadow-sm">
+                      <Map className="w-4 h-4 text-slate-400" />
                     </button>
                   </div>
                 </div>
 
                 {filteredProperties.length === 0 ? (
-                  <div className="bg-white rounded-[3rem] py-24 text-center border border-slate-100 shadow-premium">
+                  <div className="bg-white rounded-[2rem] py-24 text-center border border-slate-100 shadow-premium">
                     <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6">
                       <Search className="w-8 h-8 text-slate-300" />
                     </div>
@@ -985,15 +1349,15 @@ export default function App() {
                           key={prop.id}
                           initial={{ opacity: 0, y: 20 }}
                           animate={{ opacity: 1, y: 0 }}
-                          whileHover={{ y: -8, scale: 1.01 }}
+                          whileHover={{ y: -4, scale: 1.002 }}
                           transition={{ 
                             type: "spring",
                             stiffness: 400,
                             damping: 25,
-                            delay: idx * 0.05 
+                            delay: idx * 0.04 
                           }}
                           onClick={() => setSelectedPropertyId(prop.id)}
-                          className="group bg-white rounded-[2.5rem] border border-slate-100 shadow-card hover:shadow-premium hover:shadow-indigo-500/10 hover:border-indigo-100 transition-all duration-500 cursor-pointer overflow-hidden flex flex-col"
+                          className="group bg-white rounded-lg border border-stone-200/80 hover:border-stone-400/80 shadow-card hover:shadow-premium transition-all duration-300 cursor-pointer overflow-hidden flex flex-col"
                         >
                           <PropertyCardImageCarousel
                             photos={prop.photos}
@@ -1010,41 +1374,80 @@ export default function App() {
                             prop={prop}
                           />
 
-                          <div className="p-8 space-y-6 flex-1 flex flex-col justify-between">
-                            <div className="space-y-4">
+                          <div className="p-6 space-y-5 flex-1 flex flex-col justify-between bg-white">
+                            <div className="space-y-3.5 text-left">
                               <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2 text-slate-400 text-xs font-bold uppercase tracking-widest">
-                                  <MapPin className="w-4 h-4 text-blue-500" />
+                                <div className="flex items-center gap-1.5 text-stone-500 text-[10px] font-bold uppercase tracking-wider">
+                                  <MapPin className="w-3.5 h-3.5 text-terracotta" strokeWidth={1.5} />
                                   {prop.city}
                                 </div>
-                                <div className="flex items-center gap-1.5 px-3 py-1 bg-blue-50 text-blue-600 rounded-lg text-[9px] font-black uppercase tracking-widest border border-blue-100">
-                                  <Compass className="w-3 h-3" />
-                                  {commuteMin} MINS
+                                <div className="flex items-center gap-1.5">
+                                  <span className={`px-2 py-0.5 rounded-sm text-[8px] font-black uppercase tracking-widest border ${
+                                    prop.status === 'occupied' 
+                                      ? 'bg-terracotta/10 text-terracotta border-terracotta/20' 
+                                      : 'bg-sage/10 text-sage border-sage/20'
+                                  }`}>
+                                    {prop.status === 'occupied' ? 'Occupied' : 'Available'}
+                                  </span>
+                                  <div className="flex items-center gap-1 px-2 py-0.5 bg-stone-100 text-ink rounded-sm text-[8px] font-black uppercase tracking-widest border border-stone-200">
+                                    <Compass className="w-3 h-3 text-sage" strokeWidth={1.5} />
+                                    {commuteMin} MINS
+                                  </div>
                                 </div>
                               </div>
-                              <h4 className="text-2xl font-black font-display tracking-tight text-[#1A1D1F] group-hover:text-blue-600 transition-colors leading-tight">{prop.title}</h4>
+                              <h4 className="text-lg font-semibold font-display tracking-tight text-ink group-hover:text-terracotta transition-colors leading-snug">{prop.title}</h4>
                             </div>
 
-                            <div className="flex items-center justify-between pt-6 border-t border-slate-50">
-                              <div className="flex items-center gap-6">
+                            {/* Owner status toggle quick controls */}
+                            {(prop.ownerName.includes('(You)') || (currentUser && prop.ownerEmail === currentUser.email)) && (
+                              <div 
+                                className="px-3 py-1.5 bg-parchment/65 border border-stone-200/60 rounded-md flex items-center justify-between gap-3 text-xs"
+                                onClick={(e) => e.stopPropagation()} // Prevent opening details modal when clicking toggle
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span className="relative flex h-1.5 w-1.5">
+                                    <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${prop.status === 'occupied' ? 'bg-terracotta' : 'bg-sage'}`}></span>
+                                    <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${prop.status === 'occupied' ? 'bg-terracotta' : 'bg-sage'}`}></span>
+                                  </span>
+                                  <span className="text-stone-500 font-bold uppercase tracking-wider text-[8px]">
+                                    Owner Controls
+                                  </span>
+                                </div>
+                                <button
+                                  onClick={() => handleTogglePropertyStatus(prop.id)}
+                                  className={`px-2 py-1 rounded-sm font-black uppercase text-[8px] tracking-widest border transition-all cursor-pointer active:scale-95 ${
+                                    prop.status === 'occupied'
+                                      ? 'bg-sage text-white border-sage hover:bg-sage/90'
+                                      : 'bg-terracotta text-white border-terracotta hover:bg-terracotta/90'
+                                  }`}
+                                >
+                                  {prop.status === 'occupied' ? 'Mark Available' : 'Mark Occupied'}
+                                </button>
+                              </div>
+                            )}
+
+                            <div className="flex items-center justify-between pt-4.5 border-t border-stone-150">
+                              <div className="flex items-center gap-5 text-left">
                                 <div className="flex flex-col">
-                                  <span className="text-lg font-black text-[#1A1D1F]">{prop.bedrooms}</span>
-                                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Beds</span>
+                                  <span className="text-sm font-semibold font-mono text-ink leading-tight">{prop.bedrooms}</span>
+                                  <span className="text-[8px] font-bold text-stone-400 uppercase tracking-wider">Beds</span>
                                 </div>
                                 <div className="flex flex-col">
-                                  <span className="text-lg font-black text-[#1A1D1F]">{prop.bathrooms}</span>
-                                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Baths</span>
+                                  <span className="text-sm font-semibold font-mono text-ink leading-tight">{prop.bathrooms}</span>
+                                  <span className="text-[8px] font-bold text-stone-400 uppercase tracking-wider">Baths</span>
                                 </div>
                                 <div className="flex flex-col">
-                                  <span className="text-lg font-black text-[#1A1D1F]">{prop.areaSqFt}</span>
-                                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Sq.Ft</span>
+                                  <span className="text-sm font-semibold font-mono text-ink leading-tight">{prop.areaSqFt}</span>
+                                  <span className="text-[8px] font-bold text-stone-400 uppercase tracking-wider">Sq.Ft</span>
                                 </div>
                               </div>
 
-                              <div className="flex -space-x-2">
-                                <img src={prop.ownerAvatar} className="w-8 h-8 rounded-full border-2 border-white shadow-sm" alt="" />
-                                <div className="w-8 h-8 rounded-full bg-blue-600 border-2 border-white shadow-sm flex items-center justify-center text-white">
-                                  <Check className="w-4 h-4" />
+                              <div className="flex -space-x-1.5 items-center">
+                                <div className="relative">
+                                  <img src={prop.ownerAvatar} className="w-7 h-7 rounded-full border-2 border-white shadow-sm object-cover" alt="" />
+                                  <div className="absolute -bottom-1 -right-1 w-4.5 h-4.5 rounded-full bg-brass border-2 border-white shadow-sm flex items-center justify-center text-white" title="Verified Direct Owner">
+                                    <Check className="w-2.5 h-2.5 stroke-[3px]" />
+                                  </div>
                                 </div>
                               </div>
                             </div>
@@ -1059,57 +1462,57 @@ export default function App() {
               {/* RIGHT: SMART INSIGHTS SIDEBAR (Col 4) */}
               <aside className="space-y-8 sticky top-28">
                 {/* 🎯 Workspace Selection */}
-                <div className="bg-white rounded-[2.5rem] p-8 border border-slate-100 shadow-premium space-y-6">
+                <div className="bg-white rounded-[2rem] p-6 border border-slate-200/60 shadow-md space-y-6">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600 border border-blue-100">
+                    <div className="w-10 h-10 bg-sage/10 rounded-lg flex items-center justify-center text-sage border border-sage/20">
                       <Building className="w-5 h-5" />
                     </div>
-                    <div>
-                      <h4 className="text-sm font-black uppercase tracking-tight text-[#1A1D1F]">Active Workspace</h4>
-                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Commute Optimization Hub</p>
+                    <div className="text-left">
+                      <h4 className="text-xs font-black uppercase tracking-tight text-[#1A1D1F]">Active Workspace</h4>
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Commute Optimization Hub</p>
                     </div>
                   </div>
 
-                  <div className="space-y-3">
+                  <div className="space-y-2.5">
                     {workplacesData.map((w) => (
                       <button
                         key={w.id}
                         onClick={() => setSelectedWorkplace(w.id)}
-                        className={`w-full text-left p-4 rounded-2xl border transition-all flex items-center justify-between group ${
+                        className={`w-full text-left p-4 rounded-lg border transition-all flex items-center justify-between group cursor-pointer ${
                           selectedWorkplace === w.id 
-                            ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-600/20' 
+                            ? 'bg-terracotta border-terracotta text-white shadow-md' 
                             : 'bg-slate-50 border-transparent text-[#1A1D1F] hover:bg-slate-100'
                         }`}
                       >
                         <div className="min-w-0">
                           <p className="text-xs font-black truncate leading-tight">{w.name}</p>
-                          <p className={`text-[9px] font-bold mt-1 ${selectedWorkplace === w.id ? 'text-white/60' : 'text-slate-400'}`}>
+                          <p className={`text-[9px] font-bold mt-1 ${selectedWorkplace === w.id ? 'text-white/70' : 'text-slate-400'}`}>
                             {w.zone} Zone
                           </p>
                         </div>
-                        {selectedWorkplace === w.id && <ChevronRight className="w-4 h-4 shrink-0" />}
+                        {selectedWorkplace === w.id && <ChevronRight className="w-4 h-4 shrink-0 text-white" />}
                       </button>
                     ))}
                   </div>
 
-                  <div className="pt-2 flex items-center gap-3">
+                  <div className="pt-2 flex items-center gap-2">
                     <button 
-                      onClick={() => setCommuteTransitMode('auto')}
-                      className={`flex-1 h-10 rounded-xl flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all ${commuteTransitMode === 'auto' ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
+                       onClick={() => setCommuteTransitMode('auto')}
+                       className={`flex-1 h-10 rounded-lg flex items-center justify-center gap-1.5 text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer border ${commuteTransitMode === 'auto' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-slate-50 border-transparent text-slate-400 hover:bg-slate-100'}`}
                     >
                       <Zap className="w-3 h-3" />
                       Auto
                     </button>
                     <button 
-                      onClick={() => setCommuteTransitMode('metro')}
-                      className={`flex-1 h-10 rounded-xl flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all ${commuteTransitMode === 'metro' ? 'bg-blue-100 text-blue-700 border border-blue-200' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
+                       onClick={() => setCommuteTransitMode('metro')}
+                       className={`flex-1 h-10 rounded-lg flex items-center justify-center gap-1.5 text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer border ${commuteTransitMode === 'metro' ? 'bg-terracotta/10 text-terracotta border-terracotta/20' : 'bg-slate-50 border-transparent text-slate-400 hover:bg-slate-100'}`}
                     >
                       <Bus className="w-3 h-3" />
                       Metro
                     </button>
                     <button 
-                      onClick={() => setCommuteTransitMode('bike')}
-                      className={`flex-1 h-10 rounded-xl flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all ${commuteTransitMode === 'bike' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
+                       onClick={() => setCommuteTransitMode('bike')}
+                       className={`flex-1 h-10 rounded-lg flex items-center justify-center gap-1.5 text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer border ${commuteTransitMode === 'bike' ? 'bg-sage/10 text-sage border border-sage/20' : 'bg-slate-50 border-transparent text-slate-400 hover:bg-slate-100'}`}
                     >
                       <Bike className="w-3 h-3" />
                       Bike
@@ -1118,7 +1521,7 @@ export default function App() {
                 </div>
 
                 {/* 🗺️ Neighborhood Pulse */}
-                <div className="bg-white rounded-[2.5rem] p-8 border border-slate-100 shadow-premium">
+                <div className="bg-white rounded-[2rem] p-6 border border-slate-200/60 shadow-md">
                   <NeighborhoodMap 
                     selectedZone={selectedCity === 'All' ? selectedMapNeighborhood : selectedCity}
                     onZoneSelect={(zone) => {
@@ -1128,25 +1531,27 @@ export default function App() {
                     }}
                     neighborhoodData={neighborhoodData}
                     transitMode={commuteTransitMode}
+                    selectedWorkplace={selectedWorkplace}
+                    onPropertySelect={setSelectedPropertyId}
                   />
                 </div>
 
                 {/* 💰 Direct Savings Pulse */}
-                <div className="bg-[#1A1D1F] rounded-[2.5rem] p-8 text-white space-y-8 relative overflow-hidden shadow-premium">
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/10 rounded-full blur-3xl -mr-16 -mt-16" />
-                  <div className="absolute bottom-0 left-0 w-32 h-32 bg-emerald-600/10 rounded-full blur-3xl -ml-16 -mb-16" />
+                <div className="bg-[#12141C] rounded-[2rem] p-6 text-white space-y-6 relative overflow-hidden shadow-lg border border-white/5">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-terracotta/10 rounded-full blur-3xl -mr-16 -mt-16" />
+                  <div className="absolute bottom-0 left-0 w-32 h-32 bg-amber-500/10 rounded-full blur-3xl -ml-16 -mb-16" />
                   
-                  <div className="relative z-10 space-y-6">
+                  <div className="relative z-10 space-y-5 text-left">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center border border-white/10 backdrop-blur-md">
-                        <DollarSign className="w-5 h-5 text-emerald-400" />
+                      <div className="w-10 h-10 bg-white/10 rounded-lg flex items-center justify-center border border-white/10 backdrop-blur-md">
+                        <DollarSign className="w-5 h-5 text-terracotta" />
                       </div>
-                      <h4 className="text-sm font-black uppercase tracking-tight">Direct Gains</h4>
+                      <h4 className="text-xs font-black uppercase tracking-tight">Direct Gains</h4>
                     </div>
 
                     <div className="space-y-1">
-                      <p className="text-4xl font-black font-display tracking-tight">₹{totalSavingsCommissions.toLocaleString()}</p>
-                      <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest">Aggregate Brokerage Avoided</p>
+                      <p className="text-3xl font-bold font-mono tracking-tight text-white">₹{totalSavingsCommissions.toLocaleString()}</p>
+                      <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest leading-none">Brokerage Savings Accumulated</p>
                     </div>
 
                     <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden">
@@ -1154,41 +1559,44 @@ export default function App() {
                         initial={{ width: 0 }}
                         animate={{ width: '75%' }}
                         transition={{ duration: 1, ease: 'easeOut' }}
-                        className="h-full bg-gradient-to-r from-blue-500 to-emerald-500" 
+                        className="h-full bg-gradient-to-r from-amber-400 via-terracotta to-terracotta-dark" 
                       />
                     </div>
 
-                    <p className="text-[11px] text-white/60 font-medium leading-relaxed italic">
-                      "Save up to ₹{Math.max(...filteredProperties.map(p => p.brokerSavings)).toLocaleString()} in a single direct handshake transaction today."
+                    <p className="text-[10px] text-slate-400 font-medium leading-relaxed italic block text-left">
+                      "Save up to ₹{Math.max(...filteredProperties.map(p => p.brokerSavings)).toLocaleString()} in a single direct transaction today."
                     </p>
                   </div>
                 </div>
 
                 {/* 📈 Market Trend Card (Visual Placeholder) */}
-                <div className="bg-white rounded-[2.5rem] p-8 border border-slate-100 shadow-premium space-y-6">
+                <div className="bg-white rounded-[2rem] p-6 border border-slate-200/60 shadow-md space-y-6">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400 border border-slate-100">
+                    <div className="flex items-center gap-3 text-left">
+                      <div className="w-10 h-10 bg-slate-50 rounded-lg flex items-center justify-center text-slate-400 border border-slate-150">
                         <ArrowUpRight className="w-5 h-5" />
                       </div>
-                      <h4 className="text-sm font-black uppercase tracking-tight text-[#1A1D1F]">Trend Pulse</h4>
+                      <div>
+                        <h4 className="text-xs font-black uppercase tracking-tight text-[#1A1D1F]">Trend Pulse</h4>
+                        <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Listing Velocity</p>
+                      </div>
                     </div>
-                    <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest bg-emerald-50 px-2.5 py-1 rounded-lg">+12%</span>
+                    <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-100">+12%</span>
                   </div>
 
-                  <div className="flex items-end gap-1.5 h-20 px-2">
+                  <div className="flex items-end gap-1.5 h-16 px-2">
                     {[30, 45, 35, 60, 50, 75, 40, 85, 95].map((h, i) => (
                       <motion.div 
                         key={i}
                         initial={{ height: 0 }}
                         animate={{ height: `${h}%` }}
                         transition={{ delay: i * 0.05, duration: 0.5 }}
-                        className={`flex-1 rounded-t-lg transition-colors ${i === 8 ? 'bg-blue-600' : 'bg-slate-100 hover:bg-slate-200'}`}
+                        className={`flex-1 rounded-t transition-colors ${i === 8 ? 'bg-terracotta' : 'bg-slate-100 hover:bg-slate-200'}`}
                       />
                     ))}
                   </div>
 
-                  <p className="text-[10px] text-slate-400 font-bold text-center uppercase tracking-[0.2em]">Listing velocity in {selectedCity}</p>
+                  <p className="text-[9px] text-slate-400 font-extrabold text-center uppercase tracking-[0.15em]">Listing velocity in {selectedCity}</p>
                 </div>
               </aside>
             </section>
@@ -1220,6 +1628,7 @@ export default function App() {
               inquiries={inquiries}
               onAddProperty={handleAddProperty}
               onUpdateInquiryStatus={handleUpdateInquiryStatus}
+              onTogglePropertyStatus={handleTogglePropertyStatus}
               currentUser={currentUser}
             />
           </motion.div>
@@ -1228,6 +1637,7 @@ export default function App() {
         {webActiveSection === 'docs' && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="min-h-[700px] bg-white rounded-[3rem] shadow-premium border border-slate-100 overflow-hidden p-8">
             <DocsHub 
+              properties={properties}
               isKycVerified={isKycVerified} 
               onVerifyKyc={() => {
                 setIsKycVerified(true);
@@ -1264,11 +1674,11 @@ export default function App() {
             repeat: Infinity,
             ease: "easeInOut"
           }}
-          className="fixed bottom-8 right-8 bg-slate-950/80 border border-emerald-500/30 pl-5 pr-3 py-3 rounded-[2rem] shadow-[0_0_50px_-12px_rgba(16,185,129,0.3)] z-40 flex items-center gap-6 animate-slideUp backdrop-blur-2xl max-w-sm"
+          className="fixed bottom-8 right-8 bg-slate-950/80 border border-terracotta/30 pl-5 pr-3 py-3 rounded-[2rem] shadow-[0_0_50px_-12px_rgba(181,101,43,0.3)] z-40 flex items-center gap-6 animate-slideUp backdrop-blur-2xl max-w-sm"
         >
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
-              <Sparkles className="w-5 h-5 text-emerald-500 animate-pulse shrink-0" />
+            <div className="w-10 h-10 rounded-xl bg-terracotta/10 flex items-center justify-center border border-terracotta/20">
+              <Sparkles className="w-5 h-5 text-terracotta animate-pulse shrink-0" />
             </div>
             <div>
               <p className="text-[11px] font-black text-white uppercase tracking-widest leading-none">Analysis Loop</p>
@@ -1278,7 +1688,7 @@ export default function App() {
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => setIsCompareOpen(true)}
-              className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10px] uppercase tracking-wider px-5 py-2.5 rounded-2xl transition-all cursor-pointer whitespace-nowrap shadow-lg shadow-emerald-500/20"
+              className="bg-terracotta hover:bg-terracotta-dark text-slate-950 font-black text-[10px] uppercase tracking-wider px-5 py-2.5 rounded-xl transition-all cursor-pointer whitespace-nowrap shadow-lg shadow-terracotta/20"
             >
               Matrix
             </button>
@@ -1287,7 +1697,7 @@ export default function App() {
                 setComparedPropertyIds([]);
                 showToast('Matrix cleared');
               }}
-              className="bg-slate-900 hover:bg-slate-800 text-slate-500 hover:text-white font-black text-[10px] uppercase tracking-wider w-10 h-10 flex items-center justify-center rounded-2xl border border-white/5 cursor-pointer transition-all"
+              className="bg-slate-900 hover:bg-slate-800 text-slate-500 hover:text-white font-black text-[10px] uppercase tracking-wider w-10 h-10 flex items-center justify-center rounded-xl border border-white/5 cursor-pointer transition-all"
             >
               <X className="w-4 h-4" />
             </button>
@@ -1298,13 +1708,13 @@ export default function App() {
       {/* 📊 DIRECT COMPARISON SIDE-BY-SIDE DIALOG */}
       {isCompareOpen && (
         <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-2xl flex items-center justify-center p-4 z-50 animate-fadeIn" id="compare-modal-root">
-          <div className="bg-slate-900 border border-white/5 rounded-[3rem] w-full max-w-5xl max-h-[92vh] overflow-hidden flex flex-col shadow-[0_0_100px_-20px_rgba(16,185,129,0.1)] animate-scaleUp">
+          <div className="bg-slate-900 border border-white/5 rounded-[3rem] w-full max-w-5xl max-h-[92vh] overflow-hidden flex flex-col shadow-[0_0_100px_-20px_rgba(181,101,43,0.1)] animate-scaleUp">
             
             {/* Header */}
             <div className="p-8 border-b border-white/5 flex justify-between items-center bg-slate-950/50 backdrop-blur-xl">
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
-                  <Sparkles className="w-6 h-6 text-emerald-500" />
+                <div className="w-12 h-12 rounded-xl bg-terracotta/10 flex items-center justify-center border border-terracotta/20">
+                  <Sparkles className="w-6 h-6 text-terracotta" />
                 </div>
                 <div>
                   <h3 className="text-xl font-black text-white font-display tracking-tight">Rental Analysis Matrix</h3>
@@ -1314,16 +1724,16 @@ export default function App() {
               <div className="flex items-center gap-3">
                 <button
                   onClick={handleShareCompare}
-                  className="px-5 py-3 rounded-2xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 font-black text-xs uppercase tracking-wider flex items-center gap-2 transition-all border border-emerald-500/20 hover:border-emerald-500/30 active:scale-95 cursor-pointer shrink-0"
+                  className="px-5 py-3 rounded-xl bg-terracotta/10 hover:bg-terracotta/20 text-terracotta font-black text-xs uppercase tracking-wider flex items-center gap-2 transition-all border border-terracotta/20 hover:border-terracotta/30 active:scale-95 cursor-pointer shrink-0"
                   title="Copy deep-link to share comparison with roommates"
                 >
-                  <Share2 className="w-4 h-4 text-emerald-400" />
+                  <Share2 className="w-4 h-4 text-terracotta" />
                   <span className="hidden sm:inline">Share Comparison</span>
                   <span className="sm:hidden">Share</span>
                 </button>
                 <button 
                   onClick={() => setIsCompareOpen(false)}
-                  className="w-12 h-12 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-all cursor-pointer border border-white/5 shrink-0"
+                  className="w-12 h-12 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-all cursor-pointer border border-white/5 shrink-0"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -1337,11 +1747,11 @@ export default function App() {
                 {/* Labels Column */}
                 <div className="space-y-6 pr-4 flex flex-col justify-between py-4 text-slate-500 text-[10px] font-black uppercase tracking-widest border-r border-white/5">
                   <div className="h-56 flex items-end pb-4 font-black">Configuration</div>
-                  <div className="py-4 border-t border-white/5 flex items-center gap-2"><DollarSign className="w-4 h-4 text-emerald-500" /> Economics</div>
-                  <div className="py-4 border-t border-white/5 flex items-center gap-2"><Building className="w-4 h-4 text-emerald-500" /> Architecture</div>
-                  <div className="py-4 border-t border-white/5 flex items-center gap-2"><Compass className="w-4 h-4 text-blue-500" /> Logistics</div>
-                  <div className="py-4 border-t border-white/5 flex items-center gap-2"><Sparkles className="w-4 h-4 text-emerald-500" /> Direct Gain</div>
-                  <div className="py-4 border-t border-white/5 flex items-center gap-2"><UserCheck className="w-4 h-4 text-emerald-500" /> Validation</div>
+                  <div className="py-4 border-t border-white/5 flex items-center gap-2"><DollarSign className="w-4 h-4 text-terracotta" /> Economics</div>
+                  <div className="py-4 border-t border-white/5 flex items-center gap-2"><Building className="w-4 h-4 text-terracotta" /> Architecture</div>
+                  <div className="py-4 border-t border-white/5 flex items-center gap-2"><Compass className="w-4 h-4 text-terracotta" /> Logistics</div>
+                  <div className="py-4 border-t border-white/5 flex items-center gap-2"><Sparkles className="w-4 h-4 text-terracotta" /> Direct Gain</div>
+                  <div className="py-4 border-t border-white/5 flex items-center gap-2"><UserCheck className="w-4 h-4 text-terracotta" /> Validation</div>
                   <div className="py-4 border-t border-white/5 flex items-center gap-2">Inventory</div>
                   <div className="pt-6 border-t border-white/5">Protocol</div>
                 </div>
@@ -1356,7 +1766,7 @@ export default function App() {
                       animate={{ opacity: 1, scale: 1 }}
                       whileHover={{ scale: 1.02, y: -5 }}
                       transition={{ type: "spring", stiffness: 400, damping: 25 }}
-                      className="bg-white/90 border border-slate-100 rounded-[2.5rem] p-6 flex flex-col justify-between relative space-y-8 backdrop-blur-xl hover:shadow-indigo-500/10 hover:border-indigo-200 hover:shadow-premium transition-all duration-500 group shadow-lg shadow-slate-200/20"
+                      className="bg-white/90 border border-slate-100 rounded-[2.5rem] p-6 flex flex-col justify-between relative space-y-8 backdrop-blur-xl hover:shadow-terracotta/5 hover:border-terracotta/20 hover:shadow-premium transition-all duration-500 group shadow-lg shadow-slate-200/20"
                     >
                       
                       {/* Column Content 1: Header Image & Title */}
@@ -1370,8 +1780,8 @@ export default function App() {
                         </div>
                         <div className="space-y-3">
                           <h4 className="text-base font-black text-slate-900 font-display line-clamp-2 leading-tight tracking-tight">{p.title}</h4>
-                          <div className="text-[10px] text-slate-400 font-black flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100 w-fit">
-                            <MapPin className="w-3.5 h-3.5 text-blue-500" />
+                          <div className="text-[10px] text-slate-400 font-black flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 w-fit">
+                            <MapPin className="w-3.5 h-3.5 text-terracotta" />
                             {p.city}
                           </div>
                         </div>
@@ -1394,7 +1804,7 @@ export default function App() {
 
                         {/* Commute Time to active office */}
                         <div className="pt-6 border-t border-slate-50">
-                          <div className="flex items-center gap-2 text-sm font-black text-blue-600 font-display">
+                          <div className="flex items-center gap-2 text-sm font-black text-terracotta font-display">
                             <Compass className="w-4 h-4" />
                             <span>{commuteMin} MINS COMMUTE</span>
                           </div>
@@ -1411,12 +1821,12 @@ export default function App() {
 
                         {/* Verified host */}
                         <div className="pt-6 border-t border-slate-50 flex items-center gap-4">
-                          <img src={p.ownerAvatar} alt="" className="w-10 h-10 rounded-2xl object-cover border border-slate-100 shadow-sm" />
+                          <img src={p.ownerAvatar} alt="" className="w-10 h-10 rounded-xl object-cover border border-slate-100 shadow-sm" />
                           <div className="text-[10px]">
                             <p className="font-bold text-slate-900 leading-none mb-1.5">{p.ownerName}</p>
                             <div className="flex items-center gap-1">
-                              <UserCheck className="w-3 h-3 text-blue-500" />
-                              <span className="text-[8px] font-black text-blue-500 uppercase tracking-widest">Verified Host</span>
+                              <UserCheck className="w-3 h-3 text-terracotta" />
+                              <span className="text-[8px] font-black text-terracotta uppercase tracking-widest">Verified Host</span>
                             </div>
                           </div>
                         </div>
@@ -1431,7 +1841,7 @@ export default function App() {
                             setIsCompareOpen(false);
                             showToast(`Encrypted Link established with ${p.ownerName}`);
                           }}
-                          className="flex-1 bg-slate-900 hover:bg-black text-white font-bold py-4 rounded-2xl text-xs uppercase tracking-widest transition-all cursor-pointer shadow-xl shadow-slate-900/10 active:scale-[0.98]"
+                          className="flex-1 bg-slate-900 hover:bg-black text-white font-bold py-4 rounded-xl text-xs uppercase tracking-widest transition-all cursor-pointer shadow-xl shadow-slate-900/10 active:scale-[0.98]"
                         >
                           Chat Direct
                         </button>
@@ -1439,7 +1849,7 @@ export default function App() {
                           onClick={() => {
                             setComparedPropertyIds(prev => prev.filter(id => id !== p.id));
                           }}
-                          className="w-12 h-12 rounded-2xl bg-slate-50 hover:bg-red-50 text-slate-400 hover:text-red-500 border border-slate-100 flex items-center justify-center transition-all cursor-pointer"
+                          className="w-12 h-12 rounded-xl bg-slate-50 hover:bg-red-50 text-slate-400 hover:text-red-500 border border-slate-100 flex items-center justify-center transition-all cursor-pointer"
                         >
                           <X className="w-5 h-5" />
                         </button>
@@ -1465,8 +1875,8 @@ export default function App() {
             {/* Total savings calculation summary row */}
             <div className="p-10 bg-white border-t border-slate-100 flex justify-between items-center text-xs font-black text-slate-400 px-12 shrink-0 backdrop-blur-xl">
               <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-2xl bg-indigo-50 flex items-center justify-center border border-indigo-100">
-                  <Sparkles className="w-5 h-5 text-indigo-500" />
+                <div className="w-10 h-10 rounded-xl bg-terracotta/10 flex items-center justify-center border border-terracotta/20">
+                  <Sparkles className="w-5 h-5 text-terracotta" />
                 </div>
                 <div className="flex flex-col">
                   <span className="text-slate-900 text-[11px] uppercase tracking-widest">Aggregate Direct Gains</span>
@@ -1479,7 +1889,7 @@ export default function App() {
                   <p className="text-[10px] text-green-600 tracking-widest font-black uppercase">Commission Avoided</p>
                 </div>
                 <div className="w-px h-12 bg-slate-100" />
-                <button className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-indigo-600/20 transition-all hover:scale-105 active:scale-95">
+                <button className="bg-terracotta hover:bg-terracotta-dark text-white px-8 py-3.5 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-terracotta/20 transition-all hover:scale-105 active:scale-95">
                   Export Report
                 </button>
               </div>

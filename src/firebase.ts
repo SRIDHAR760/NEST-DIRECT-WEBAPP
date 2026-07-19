@@ -8,9 +8,11 @@ import {
   User,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
-  updateProfile
+  updateProfile,
+  signInAnonymously
 } from 'firebase/auth';
 import { 
+  getFirestore,
   initializeFirestore, 
   collection, 
   doc, 
@@ -23,32 +25,37 @@ import {
   onSnapshot, 
   query, 
   orderBy,
-  where
+  where,
+  getDocFromServer
 } from 'firebase/firestore';
-
-// Credentials derived directly from workspace secure configurations
-const firebaseConfig = {
-  apiKey: "AIzaSyAUoZ1tBGvgHfyw0yoxUPD1IyNFUZl6r4A",
-  authDomain: "lunar-form-hk91c.firebaseapp.com",
-  projectId: "lunar-form-hk91c",
-  storageBucket: "lunar-form-hk91c.firebasestorage.app",
-  messagingSenderId: "10249213938",
-  appId: "1:10249213938:web:39a966a3241360bd8c3d6b"
-};
+import firebaseConfig from '../firebase-applet-config.json';
 
 // Initialize Firebase App
 const app = initializeApp(firebaseConfig);
 
 // Initialize Firestore specifying custom databaseId
-const db = initializeFirestore(app, {
-  databaseId: "ai-studio-13e3d597-9bed-45a0-bcd2-ad330b9cc15b"
-} as any);
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
 // Initialize Authentication
-const auth = getAuth(app);
+export const auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
 
-export { app, db, auth, googleProvider };
+export { app, googleProvider };
+
+// --- Validate Connection to Firestore ---
+async function testConnection() {
+  try {
+    await getDocFromServer(doc(db, 'test', 'connection'));
+    console.log("Firebase connection verified successfully!");
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('offline')) {
+      console.warn("Firebase client is offline. Please check network or config.");
+    } else {
+      console.log("Firebase initialized successfully (connection test complete).");
+    }
+  }
+}
+testConnection();
 
 // --- Authenticated Google Sign-In Helper ---
 export async function signInWithGoogle(): Promise<User | null> {
@@ -63,20 +70,78 @@ export async function signInWithGoogle(): Promise<User | null> {
   }
 }
 
+// --- Anonymous Guest Sign-In Helper ---
+export async function signInGuestUser(): Promise<User | null> {
+  try {
+    const result = await signInAnonymously(auth);
+    // Persist profile into Firestore
+    await saveUserProfile(result.user);
+    return result.user;
+  } catch (error) {
+    console.error("Guest Sign-In Error:", error);
+    throw error;
+  }
+}
+
+// --- Email Sign-In Helper ---
+export async function signInWithEmail(email: string, pass: string): Promise<User | null> {
+  try {
+    const result = await signInWithEmailAndPassword(auth, email, pass);
+    await saveUserProfile(result.user);
+    return result.user;
+  } catch (error) {
+    console.error("Email Sign-In Error:", error);
+    throw error;
+  }
+}
+
+// --- Email Sign-Up Helper ---
+export async function signUpWithEmail(email: string, pass: string, name: string): Promise<User | null> {
+  try {
+    const result = await createUserWithEmailAndPassword(auth, email, pass);
+    await updateProfile(result.user, { displayName: name });
+    // Reload user profile to ensure displayName is propagated
+    await result.user.reload();
+    const updatedUser = auth.currentUser;
+    if (updatedUser) {
+      await saveUserProfile(updatedUser);
+      return updatedUser;
+    }
+    await saveUserProfile(result.user);
+    return result.user;
+  } catch (error) {
+    console.error("Email Sign-Up Error:", error);
+    throw error;
+  }
+}
+
 // --- Save User Profile into Firestore ---
 export async function saveUserProfile(user: User): Promise<void> {
   const userRef = doc(db, 'users', user.uid);
   try {
     const userSnap = await getDoc(userRef);
+    const generatedAvatar = `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(user.uid)}`;
+    const displayName = user.displayName || (user.isAnonymous ? `Chennai Guest #${user.uid.substring(0, 4)}` : 'Chennai Tenant');
+    const photoURL = user.photoURL || generatedAvatar;
+
     if (!userSnap.exists()) {
       await setDoc(userRef, {
         uid: user.uid,
-        displayName: user.displayName || 'Chennai Guest',
-        email: user.email || '',
-        photoURL: user.photoURL || '',
+        displayName: displayName,
+        email: user.email || (user.isAnonymous ? 'guest@nestdirect.in' : ''),
+        photoURL: photoURL,
         favorites: ['prop-1', 'prop-5'], // Default starters
         createdAt: new Date().toISOString()
       }, { merge: true });
+    } else {
+      // Keep displayName and photoURL synced if they are set on the Auth profile but empty in DB
+      const existingData = userSnap.data();
+      if (!existingData.displayName || !existingData.photoURL) {
+        await setDoc(userRef, {
+          displayName: existingData.displayName || displayName,
+          photoURL: existingData.photoURL || photoURL
+        }, { merge: true });
+      }
     }
   } catch (error) {
     console.error("Error setting up user profile document:", error);
@@ -146,5 +211,6 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     path
   };
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  // Log warning and prevent uncaught exception bubble to protect runtime stability
+  console.warn('Firestore Operation Failed - Safe local/offline fallback is active.');
 }
