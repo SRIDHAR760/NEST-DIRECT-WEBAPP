@@ -33,8 +33,8 @@ import firebaseConfig from '../firebase-applet-config.json';
 // Initialize Firebase App
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore specifying custom databaseId
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+// Initialize Firestore — uses a custom named database if specified, otherwise the default database
+export const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId || '(default)');
 
 // Initialize Authentication
 export const auth = getAuth(app);
@@ -124,6 +124,10 @@ export async function saveUserProfile(user: User): Promise<void> {
     const displayName = user.displayName || (user.isAnonymous ? `Chennai Guest #${user.uid.substring(0, 4)}` : 'Chennai Tenant');
     const photoURL = user.photoURL || generatedAvatar;
 
+    // Load current local states to ensure profile document starts fully populated
+    const onboardingCompleted = localStorage.getItem('nestdirect_onboarding_v4_done') === 'true';
+    const isKycVerified = localStorage.getItem('nestdirect_kyc_verified_v4') === 'true';
+
     if (!userSnap.exists()) {
       await setDoc(userRef, {
         uid: user.uid,
@@ -131,6 +135,8 @@ export async function saveUserProfile(user: User): Promise<void> {
         email: user.email || (user.isAnonymous ? 'guest@nestdirect.in' : ''),
         photoURL: photoURL,
         favorites: ['prop-1', 'prop-5'], // Default starters
+        onboardingCompleted: onboardingCompleted,
+        isKycVerified: isKycVerified,
         createdAt: new Date().toISOString()
       }, { merge: true });
     } else {
@@ -165,6 +171,40 @@ export async function logoutUser(): Promise<void> {
   } catch (error) {
     console.error("Logout Error:", error);
   }
+}
+
+// --- Translate raw Firebase Auth errors into clear, actionable messages ---
+// Centralizes handling for the two most common production deploy issues:
+// the current domain not being authorized, and a sign-in provider being disabled.
+export function getAuthErrorMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+
+  if (raw.includes('auth/unauthorized-domain')) {
+    return `This domain (${window.location.hostname}) is not authorized for sign-in yet. Go to Firebase Console → Authentication → Settings → Authorized domains, and add "${window.location.hostname}".`;
+  }
+  if (raw.includes('auth/operation-not-allowed') || raw.includes('auth/admin-restricted-operation')) {
+    return `This sign-in method is currently disabled for this project. Go to Firebase Console → Authentication → Sign-in method, and enable the provider you're trying to use (Google / Email-Password / Anonymous).`;
+  }
+  if (raw.includes('auth/invalid-credential') || raw.includes('auth/wrong-password') || raw.includes('auth/user-not-found')) {
+    return "Invalid email or password. Please verify your details or use Guest access.";
+  }
+  if (raw.includes('auth/invalid-email')) {
+    return "Invalid email format. E.g. example@gmail.com";
+  }
+  if (raw.includes('auth/email-already-in-use')) {
+    return "This email is already in use. Please sign in instead.";
+  }
+  if (raw.includes('auth/weak-password')) {
+    return "Weak password. It must be at least 6 characters.";
+  }
+  if (raw.includes('popup-blocked') || raw.includes('cancelled-popup-request') || raw.includes('popup-closed-by-user')) {
+    return "Google Login popup was blocked or closed by your browser. Please use 'Instant Guest Access' or the Email tab instead.";
+  }
+  if (raw.includes('auth/network-request-failed')) {
+    return "Network error reaching Firebase — check your internet connection and try again.";
+  }
+
+  return raw;
 }
 
 export enum OperationType {
@@ -211,6 +251,6 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     path
   };
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  // Log warning and prevent uncaught exception bubble to protect runtime stability
-  console.warn('Firestore Operation Failed - Safe local/offline fallback is active.');
+  // Log warning and throw the error as mandated by the Firebase Integration Skill
+  throw new Error(JSON.stringify(errInfo));
 }

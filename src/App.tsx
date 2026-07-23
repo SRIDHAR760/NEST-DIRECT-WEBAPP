@@ -11,7 +11,7 @@ import PropertyCardImageCarousel from './components/PropertyCardImageCarousel';
 import { motion, AnimatePresence } from 'motion/react';
 
 // Firebase Integrations & auth listeners
-import { auth, db, signInWithGoogle, signInGuestUser, signInWithEmail, signUpWithEmail, logoutUser, syncFavoritesToCloud, OperationType, handleFirestoreError } from './firebase';
+import { auth, db, signInWithGoogle, signInGuestUser, signInWithEmail, signUpWithEmail, logoutUser, syncFavoritesToCloud, OperationType, handleFirestoreError, getAuthErrorMessage } from './firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { collection, onSnapshot, doc, setDoc, getDoc, query, where, or } from 'firebase/firestore';
 
@@ -93,6 +93,7 @@ export const neighborhoodCenters: Record<string, { x: number; y: number }> = {
   'Mylapore': { x: 36, y: 126 },
   'Nungambakkam': { x: 90, y: 100 }
 };
+
 
 export default function App() {
   // --- Real-Time Firebase Authentication and Storage States ---
@@ -896,12 +897,7 @@ export default function App() {
                             }
                           } catch (error: any) {
                             console.warn("Google sign-in popup error context:", error);
-                            let cleanMsg = error?.message || String(error);
-                            if (cleanMsg.includes('popup-blocked') || cleanMsg.includes('cancelled-popup-request') || cleanMsg.includes('popup-closed-by-user')) {
-                              setAuthError("Google Login popup was blocked or closed by your browser inside this preview frame. Please use the 'Instant Guest Access' button below or Email tabs to log in instantly!");
-                            } else {
-                              setAuthError(`Google Sign-In failed: ${cleanMsg}`);
-                            }
+                            setAuthError(getAuthErrorMessage(error));
                           } finally {
                             setIsAuthenticating(false);
                           }
@@ -931,7 +927,8 @@ export default function App() {
                               showToast("Logged in as Guest User successfully!");
                             }
                           } catch (error: any) {
-                            setAuthError(`Guest Access failed: ${error?.message || error}`);
+                            console.warn("Guest sign-in error context:", error);
+                            setAuthError(getAuthErrorMessage(error));
                           } finally {
                             setIsAuthenticating(false);
                           }
@@ -973,13 +970,8 @@ export default function App() {
                           showToast(`Welcome back, ${user.displayName || 'User'}`);
                         }
                       } catch (error: any) {
-                        let msg = error?.message || "Login failed";
-                        if (msg.includes("auth/invalid-credential") || msg.includes("auth/wrong-password") || msg.includes("auth/user-not-found")) {
-                          msg = "Invalid email or password. Please verify your details or use Guest access.";
-                        } else if (msg.includes("auth/invalid-email")) {
-                          msg = "Invalid email format. E.g. example@gmail.com";
-                        }
-                        setAuthError(msg);
+                        console.warn("Email sign-in error context:", error);
+                        setAuthError(getAuthErrorMessage(error));
                       } finally {
                         setIsAuthenticating(false);
                       }
@@ -1034,15 +1026,8 @@ export default function App() {
                           showToast(`Account created! Welcome, ${authName}`);
                         }
                       } catch (error: any) {
-                        let msg = error?.message || "Registration failed";
-                        if (msg.includes("auth/email-already-in-use")) {
-                          msg = "This email is already in use. Please sign in instead.";
-                        } else if (msg.includes("auth/weak-password")) {
-                          msg = "Weak password. It must be at least 6 characters.";
-                        } else if (msg.includes("auth/invalid-email")) {
-                          msg = "Invalid email format. E.g. example@gmail.com";
-                        }
-                        setAuthError(msg);
+                        console.warn("Email sign-up error context:", error);
+                        setAuthError(getAuthErrorMessage(error));
                       } finally {
                         setIsAuthenticating(false);
                       }
