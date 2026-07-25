@@ -61,8 +61,8 @@ testConnection();
 export async function signInWithGoogle(): Promise<User | null> {
   try {
     const result = await signInWithPopup(auth, googleProvider);
-    // Persist profile into Firestore
-    await saveUserProfile(result.user);
+    // Persist profile into Firestore in background
+    saveUserProfile(result.user);
     return result.user;
   } catch (error) {
     console.error("Google Sign-In Error:", error);
@@ -74,8 +74,8 @@ export async function signInWithGoogle(): Promise<User | null> {
 export async function signInGuestUser(): Promise<User | null> {
   try {
     const result = await signInAnonymously(auth);
-    // Persist profile into Firestore
-    await saveUserProfile(result.user);
+    // Persist profile into Firestore in background
+    saveUserProfile(result.user);
     return result.user;
   } catch (error) {
     console.error("Guest Sign-In Error:", error);
@@ -87,7 +87,7 @@ export async function signInGuestUser(): Promise<User | null> {
 export async function signInWithEmail(email: string, pass: string): Promise<User | null> {
   try {
     const result = await signInWithEmailAndPassword(auth, email, pass);
-    await saveUserProfile(result.user);
+    saveUserProfile(result.user);
     return result.user;
   } catch (error) {
     console.error("Email Sign-In Error:", error);
@@ -104,10 +104,10 @@ export async function signUpWithEmail(email: string, pass: string, name: string)
     await result.user.reload();
     const updatedUser = auth.currentUser;
     if (updatedUser) {
-      await saveUserProfile(updatedUser);
+      saveUserProfile(updatedUser);
       return updatedUser;
     }
-    await saveUserProfile(result.user);
+    saveUserProfile(result.user);
     return result.user;
   } catch (error) {
     console.error("Email Sign-Up Error:", error);
