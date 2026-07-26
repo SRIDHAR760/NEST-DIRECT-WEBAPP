@@ -46,28 +46,28 @@ class TestLandingPage:
     def test_quick_access_tab_active_by_default(self, driver, base_url):
         driver.get(base_url)
         tab = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, "//*[contains(text(),'QUICK ACCESS')]"))
+            EC.presence_of_element_located((By.XPATH, "//*[contains(.,'QUICK ACCESS')]"))
         )
         assert tab is not None
 
     def test_google_button_visible(self, driver, base_url):
         driver.get(base_url)
         el = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, "//*[contains(text(),'Continue with Google')]"))
+            EC.presence_of_element_located((By.XPATH, "//*[contains(.,'Continue with Google')]"))
         )
         assert el.is_displayed()
 
     def test_guest_access_button_visible(self, driver, base_url):
         driver.get(base_url)
         el = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, "//*[contains(text(),'Instant Guest Access')]"))
+            EC.presence_of_element_located((By.XPATH, "//*[contains(.,'Instant Guest Access')]"))
         )
         assert el.is_displayed()
 
     def test_offline_visitor_link_visible(self, driver, base_url):
         driver.get(base_url)
         el = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, "//*[contains(text(),'offline visitor')]"))
+            EC.presence_of_element_located((By.XPATH, "//*[contains(.,'offline visitor')]"))
         )
         assert el.is_displayed()
 
@@ -86,22 +86,22 @@ class TestTabSwitching:
     def test_switch_to_sign_in_tab(self, driver, base_url):
         driver.get(base_url)
         tab = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, "//*[contains(text(),'SIGN IN')]"))
+            EC.element_to_be_clickable((By.XPATH, "//*[contains(.,'SIGN IN')]"))
         )
         tab.click()
         el = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, "//*[contains(text(),'Sign In with Email')]"))
+            EC.presence_of_element_located((By.XPATH, "//*[contains(.,'Sign In with Email')]"))
         )
         assert el.is_displayed()
 
     def test_switch_to_register_tab(self, driver, base_url):
         driver.get(base_url)
         tab = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, "//*[contains(text(),'REGISTER')]"))
+            EC.element_to_be_clickable((By.XPATH, "//*[contains(.,'REGISTER')]"))
         )
         tab.click()
         el = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, "//*[contains(text(),'Create Account')]"))
+            EC.presence_of_element_located((By.XPATH, "//*[contains(.,'Create Account')]"))
         )
         assert el.is_displayed()
 
@@ -111,7 +111,7 @@ class TestEmailValidation:
     def test_signin_rejects_invalid_email(self, driver, base_url, bad_email):
         driver.get(base_url)
         WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, "//*[contains(text(),'SIGN IN')]"))
+            EC.element_to_be_clickable((By.XPATH, "//*[contains(.,'SIGN IN')]"))
         ).click()
         email_input = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email']"))
@@ -120,7 +120,7 @@ class TestEmailValidation:
         email_input.send_keys(bad_email)
         password_input = driver.find_element(By.CSS_SELECTOR, "input[type='password']")
         password_input.send_keys("SomePassword123")
-        driver.find_element(By.XPATH, "//*[contains(text(),'Sign In with Email')]").click()
+        driver.find_element(By.XPATH, "//*[contains(.,'Sign In with Email')]").click()
         # Either the browser's native email validation blocks submission,
         # or the app surfaces its own error — either is an acceptable pass.
         assert email_input.get_attribute("value") == bad_email
@@ -129,7 +129,7 @@ class TestEmailValidation:
     def test_register_rejects_invalid_email(self, driver, base_url, bad_email):
         driver.get(base_url)
         WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, "//*[contains(text(),'REGISTER')]"))
+            EC.element_to_be_clickable((By.XPATH, "//*[contains(.,'REGISTER')]"))
         ).click()
         email_input = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email']"))
@@ -144,14 +144,14 @@ class TestPasswordValidation:
     def test_register_rejects_weak_password(self, driver, base_url, weak_password):
         driver.get(base_url)
         WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, "//*[contains(text(),'REGISTER')]"))
+            EC.element_to_be_clickable((By.XPATH, "//*[contains(.,'REGISTER')]"))
         ).click()
         password_input = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='password']"))
         )
         password_input.clear()
         password_input.send_keys(weak_password)
-        driver.find_element(By.XPATH, "//*[contains(text(),'Create Account')]").click()
+        driver.find_element(By.XPATH, "//*[contains(.,'Create Account')]").click()
         # Firebase requires 6+ chars; app should not silently succeed on weak input
         body_text = driver.find_element(By.TAG_NAME, "body").text
         assert "weak" in body_text.lower() or len(weak_password.strip()) < 6
@@ -159,9 +159,9 @@ class TestPasswordValidation:
     def test_register_missing_name_shows_error(self, driver, base_url):
         driver.get(base_url)
         WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, "//*[contains(text(),'REGISTER')]"))
+            EC.element_to_be_clickable((By.XPATH, "//*[contains(.,'REGISTER')]"))
         ).click()
-        driver.find_element(By.XPATH, "//*[contains(text(),'Create Account')]").click()
+        driver.find_element(By.XPATH, "//*[contains(.,'Create Account')]").click()
         # Should not navigate away from the register form without a name
-        el = driver.find_element(By.XPATH, "//*[contains(text(),'Create Account')]")
+        el = driver.find_element(By.XPATH, "//*[contains(.,'Create Account')]")
         assert el.is_displayed()

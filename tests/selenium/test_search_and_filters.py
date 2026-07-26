@@ -20,7 +20,7 @@ BEDROOM_COUNTS = ["1", "2", "3", "4"]
 def enter_as_visitor(driver, base_url):
     driver.get(base_url)
     link = WebDriverWait(driver, 10).until(
-        EC.element_to_be_clickable((By.XPATH, "//*[contains(text(),'offline visitor')]"))
+        EC.element_to_be_clickable((By.XPATH, "//*[contains(.,'offline visitor')]"))
     )
     link.click()
     WebDriverWait(driver, 15).until(
@@ -47,7 +47,7 @@ class TestBedroomFilter:
     def test_filter_by_bedroom_count(self, driver, base_url, bedrooms):
         enter_as_visitor(driver, base_url)
         try:
-            bhk_filter = driver.find_element(By.XPATH, f"//*[contains(text(),'{bedrooms} BHK') or contains(text(),'{bedrooms}BHK')]")
+            bhk_filter = driver.find_element(By.XPATH, f"//*[contains(.,'{bedrooms} BHK') or contains(.,'{bedrooms}BHK')]")
             bhk_filter.click()
             WebDriverWait(driver, 10).until(lambda d: True)
         except Exception:
@@ -58,7 +58,7 @@ class TestVerifiedOnlyToggle:
     def test_verified_only_toggle_present_and_clickable(self, driver, base_url):
         enter_as_visitor(driver, base_url)
         try:
-            toggle = driver.find_element(By.XPATH, "//*[contains(text(),'Verified')]")
+            toggle = driver.find_element(By.XPATH, "//*[contains(.,'Verified')]")
             toggle.click()
         except Exception:
             pytest.skip("Verified-only toggle not present on this build")

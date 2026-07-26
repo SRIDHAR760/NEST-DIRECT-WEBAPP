@@ -35,7 +35,7 @@ class TestResponsiveLayout:
         drv = sized_driver(width, height)
         try:
             drv.get(BASE_URL)
-            card = drv.find_element(By.XPATH, "//*[contains(text(),'QUICK ACCESS')]")
+            card = drv.find_element(By.XPATH, "//*[contains(.,'QUICK ACCESS')]")
             assert card.is_displayed()
         finally:
             drv.quit()
