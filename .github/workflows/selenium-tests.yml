@@ -32,7 +32,7 @@ jobs:
       - name: Run Selenium test suite
         run: |
           cd tests/selenium
-          pytest -v --html=report.html --self-contained-html -n auto
+          pytest -v --html=report.html --self-contained-html -n 2
 
       - name: Upload test report
         if: always()

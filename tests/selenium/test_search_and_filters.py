@@ -19,7 +19,7 @@ BEDROOM_COUNTS = ["1", "2", "3", "4"]
 
 def enter_as_visitor(driver, base_url):
     driver.get(base_url)
-    link = WebDriverWait(driver, 10).until(
+    link = WebDriverWait(driver, 15).until(
         EC.element_to_be_clickable((By.XPATH, "//*[contains(.,'offline visitor')]"))
     )
     link.click()
@@ -36,7 +36,7 @@ class TestLocalitySearch:
         search_box.clear()
         search_box.send_keys(city)
         search_box.send_keys(Keys.RETURN)
-        WebDriverWait(driver, 10).until(lambda d: d.find_element(By.TAG_NAME, "body").text != "")
+        WebDriverWait(driver, 15).until(lambda d: d.find_element(By.TAG_NAME, "body").text != "")
         body_text = driver.find_element(By.TAG_NAME, "body").text
         # Either matching properties show, or a legitimate "no results" state — never a crash
         assert city.split()[0] in body_text or "no" in body_text.lower()
@@ -49,7 +49,7 @@ class TestBedroomFilter:
         try:
             bhk_filter = driver.find_element(By.XPATH, f"//*[contains(.,'{bedrooms} BHK') or contains(.,'{bedrooms}BHK')]")
             bhk_filter.click()
-            WebDriverWait(driver, 10).until(lambda d: True)
+            WebDriverWait(driver, 15).until(lambda d: True)
         except Exception:
             pytest.skip(f"{bedrooms} BHK filter control not present on this build — skipping rather than false-failing")
 

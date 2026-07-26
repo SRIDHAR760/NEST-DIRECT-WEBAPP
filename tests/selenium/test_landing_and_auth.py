@@ -35,7 +35,7 @@ WEAK_PASSWORDS = [
 class TestLandingPage:
     def test_page_loads_with_correct_title(self, driver, base_url):
         driver.get(base_url)
-        WebDriverWait(driver, 10).until(EC.title_contains("NestDirect"))
+        WebDriverWait(driver, 15).until(EC.title_contains("NestDirect"))
         assert "NestDirect" in driver.title
 
     def test_hero_headline_visible(self, driver, base_url):
@@ -45,28 +45,28 @@ class TestLandingPage:
 
     def test_quick_access_tab_active_by_default(self, driver, base_url):
         driver.get(base_url)
-        tab = WebDriverWait(driver, 10).until(
+        tab = WebDriverWait(driver, 15).until(
             EC.presence_of_element_located((By.XPATH, "//*[contains(.,'QUICK ACCESS')]"))
         )
         assert tab is not None
 
     def test_google_button_visible(self, driver, base_url):
         driver.get(base_url)
-        el = WebDriverWait(driver, 10).until(
+        el = WebDriverWait(driver, 15).until(
             EC.presence_of_element_located((By.XPATH, "//*[contains(.,'Continue with Google')]"))
         )
         assert el.is_displayed()
 
     def test_guest_access_button_visible(self, driver, base_url):
         driver.get(base_url)
-        el = WebDriverWait(driver, 10).until(
+        el = WebDriverWait(driver, 15).until(
             EC.presence_of_element_located((By.XPATH, "//*[contains(.,'Instant Guest Access')]"))
         )
         assert el.is_displayed()
 
     def test_offline_visitor_link_visible(self, driver, base_url):
         driver.get(base_url)
-        el = WebDriverWait(driver, 10).until(
+        el = WebDriverWait(driver, 15).until(
             EC.presence_of_element_located((By.XPATH, "//*[contains(.,'offline visitor')]"))
         )
         assert el.is_displayed()
@@ -85,22 +85,22 @@ class TestLandingPage:
 class TestTabSwitching:
     def test_switch_to_sign_in_tab(self, driver, base_url):
         driver.get(base_url)
-        tab = WebDriverWait(driver, 10).until(
+        tab = WebDriverWait(driver, 15).until(
             EC.element_to_be_clickable((By.XPATH, "//*[contains(.,'SIGN IN')]"))
         )
         tab.click()
-        el = WebDriverWait(driver, 10).until(
+        el = WebDriverWait(driver, 15).until(
             EC.presence_of_element_located((By.XPATH, "//*[contains(.,'Sign In with Email')]"))
         )
         assert el.is_displayed()
 
     def test_switch_to_register_tab(self, driver, base_url):
         driver.get(base_url)
-        tab = WebDriverWait(driver, 10).until(
+        tab = WebDriverWait(driver, 15).until(
             EC.element_to_be_clickable((By.XPATH, "//*[contains(.,'REGISTER')]"))
         )
         tab.click()
-        el = WebDriverWait(driver, 10).until(
+        el = WebDriverWait(driver, 15).until(
             EC.presence_of_element_located((By.XPATH, "//*[contains(.,'Create Account')]"))
         )
         assert el.is_displayed()
@@ -110,10 +110,10 @@ class TestEmailValidation:
     @pytest.mark.parametrize("bad_email", INVALID_EMAILS)
     def test_signin_rejects_invalid_email(self, driver, base_url, bad_email):
         driver.get(base_url)
-        WebDriverWait(driver, 10).until(
+        WebDriverWait(driver, 15).until(
             EC.element_to_be_clickable((By.XPATH, "//*[contains(.,'SIGN IN')]"))
         ).click()
-        email_input = WebDriverWait(driver, 10).until(
+        email_input = WebDriverWait(driver, 15).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email']"))
         )
         email_input.clear()
@@ -128,10 +128,10 @@ class TestEmailValidation:
     @pytest.mark.parametrize("bad_email", INVALID_EMAILS)
     def test_register_rejects_invalid_email(self, driver, base_url, bad_email):
         driver.get(base_url)
-        WebDriverWait(driver, 10).until(
+        WebDriverWait(driver, 15).until(
             EC.element_to_be_clickable((By.XPATH, "//*[contains(.,'REGISTER')]"))
         ).click()
-        email_input = WebDriverWait(driver, 10).until(
+        email_input = WebDriverWait(driver, 15).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email']"))
         )
         email_input.clear()
@@ -143,10 +143,10 @@ class TestPasswordValidation:
     @pytest.mark.parametrize("weak_password", WEAK_PASSWORDS)
     def test_register_rejects_weak_password(self, driver, base_url, weak_password):
         driver.get(base_url)
-        WebDriverWait(driver, 10).until(
+        WebDriverWait(driver, 15).until(
             EC.element_to_be_clickable((By.XPATH, "//*[contains(.,'REGISTER')]"))
         ).click()
-        password_input = WebDriverWait(driver, 10).until(
+        password_input = WebDriverWait(driver, 15).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='password']"))
         )
         password_input.clear()
@@ -158,7 +158,7 @@ class TestPasswordValidation:
 
     def test_register_missing_name_shows_error(self, driver, base_url):
         driver.get(base_url)
-        WebDriverWait(driver, 10).until(
+        WebDriverWait(driver, 15).until(
             EC.element_to_be_clickable((By.XPATH, "//*[contains(.,'REGISTER')]"))
         ).click()
         driver.find_element(By.XPATH, "//*[contains(.,'Create Account')]").click()

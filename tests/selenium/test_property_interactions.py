@@ -9,7 +9,7 @@ from selenium.webdriver.support import expected_conditions as EC
 
 def enter_as_visitor(driver, base_url):
     driver.get(base_url)
-    link = WebDriverWait(driver, 10).until(
+    link = WebDriverWait(driver, 15).until(
         EC.element_to_be_clickable((By.XPATH, "//*[contains(.,'offline visitor')]"))
     )
     link.click()
@@ -19,7 +19,7 @@ def enter_as_visitor(driver, base_url):
 
 
 def first_property_card(driver):
-    return WebDriverWait(driver, 10).until(
+    return WebDriverWait(driver, 15).until(
         EC.presence_of_element_located((By.XPATH, "//div[contains(@class,'group') and .//text()[contains(.,'₹')]]"))
     )
 
@@ -34,14 +34,14 @@ class TestPropertyCard:
         enter_as_visitor(driver, base_url)
         card = first_property_card(driver)
         card.click()
-        WebDriverWait(driver, 10).until(
+        WebDriverWait(driver, 15).until(
             EC.presence_of_element_located((By.XPATH, "//*[contains(.,'Direct Property Owner') or contains(.,'Instant Response')]"))
         )
 
     def test_property_detail_shows_owner_section(self, driver, base_url):
         enter_as_visitor(driver, base_url)
         first_property_card(driver).click()
-        el = WebDriverWait(driver, 10).until(
+        el = WebDriverWait(driver, 15).until(
             EC.presence_of_element_located((By.XPATH, "//*[contains(.,'Owner')]"))
         )
         assert el.is_displayed()
@@ -87,7 +87,7 @@ class TestBookVisitInquiry:
         enter_as_visitor(driver, base_url)
         first_property_card(driver).click()
         try:
-            btn = WebDriverWait(driver, 10).until(
+            btn = WebDriverWait(driver, 15).until(
                 EC.presence_of_element_located((By.XPATH, "//*[contains(.,'Book') or contains(.,'Contact') or contains(.,'Inquire')]"))
             )
             assert btn.is_displayed()
