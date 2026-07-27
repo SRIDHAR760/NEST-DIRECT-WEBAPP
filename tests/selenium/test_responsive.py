@@ -4,6 +4,8 @@ sizes (not arbitrary), since layout breakage is inherently viewport-specific.
 """
 import pytest
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from conftest import sized_driver, BASE_URL
 
 VIEWPORTS = [
@@ -35,7 +37,9 @@ class TestResponsiveLayout:
         drv = sized_driver(width, height)
         try:
             drv.get(BASE_URL)
-            card = drv.find_element(By.XPATH, "//*[contains(.,'QUICK ACCESS')]")
+            card = WebDriverWait(drv, 15).until(
+                EC.presence_of_element_located((By.XPATH, "(//*[contains(.,'QUICK ACCESS')])[last()]"))
+            )
             assert card.is_displayed()
         finally:
             drv.quit()

@@ -41,12 +41,12 @@ class TestLandingPage:
     def test_hero_headline_visible(self, driver, base_url):
         driver.get(base_url)
         body_text = driver.find_element(By.TAG_NAME, "body").text
-        assert "Direct renting" in body_text or "without fees" in body_text
+        assert "Bypass fees" in body_text or "dream home" in body_text
 
     def test_quick_access_tab_active_by_default(self, driver, base_url):
         driver.get(base_url)
         tab = WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.XPATH, "//*[contains(.,'QUICK ACCESS')]"))
+            EC.presence_of_element_located((By.XPATH, "(//*[contains(.,'QUICK ACCESS')])[last()]"))
         )
         assert tab is not None
 
@@ -79,14 +79,14 @@ class TestLandingPage:
     def test_stats_savings_visible(self, driver, base_url):
         driver.get(base_url)
         body_text = driver.find_element(By.TAG_NAME, "body").text
-        assert "SAVED IN FEES" in body_text.upper() or "SAVED" in body_text.upper()
+        assert "BROKERAGE SAVINGS" in body_text.upper() or "DIRECT GAINS" in body_text.upper()
 
 
 class TestTabSwitching:
     def test_switch_to_sign_in_tab(self, driver, base_url):
         driver.get(base_url)
         tab = WebDriverWait(driver, 15).until(
-            EC.element_to_be_clickable((By.XPATH, "//*[contains(.,'SIGN IN')]"))
+            EC.element_to_be_clickable((By.XPATH, "(//*[contains(.,'SIGN IN')])[last()]"))
         )
         tab.click()
         el = WebDriverWait(driver, 15).until(
@@ -97,7 +97,7 @@ class TestTabSwitching:
     def test_switch_to_register_tab(self, driver, base_url):
         driver.get(base_url)
         tab = WebDriverWait(driver, 15).until(
-            EC.element_to_be_clickable((By.XPATH, "//*[contains(.,'REGISTER')]"))
+            EC.element_to_be_clickable((By.XPATH, "(//*[contains(.,'REGISTER')])[last()]"))
         )
         tab.click()
         el = WebDriverWait(driver, 15).until(
@@ -111,7 +111,7 @@ class TestEmailValidation:
     def test_signin_rejects_invalid_email(self, driver, base_url, bad_email):
         driver.get(base_url)
         WebDriverWait(driver, 15).until(
-            EC.element_to_be_clickable((By.XPATH, "//*[contains(.,'SIGN IN')]"))
+            EC.element_to_be_clickable((By.XPATH, "(//*[contains(.,'SIGN IN')])[last()]"))
         ).click()
         email_input = WebDriverWait(driver, 15).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email']"))
@@ -129,7 +129,7 @@ class TestEmailValidation:
     def test_register_rejects_invalid_email(self, driver, base_url, bad_email):
         driver.get(base_url)
         WebDriverWait(driver, 15).until(
-            EC.element_to_be_clickable((By.XPATH, "//*[contains(.,'REGISTER')]"))
+            EC.element_to_be_clickable((By.XPATH, "(//*[contains(.,'REGISTER')])[last()]"))
         ).click()
         email_input = WebDriverWait(driver, 15).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email']"))
@@ -144,7 +144,7 @@ class TestPasswordValidation:
     def test_register_rejects_weak_password(self, driver, base_url, weak_password):
         driver.get(base_url)
         WebDriverWait(driver, 15).until(
-            EC.element_to_be_clickable((By.XPATH, "//*[contains(.,'REGISTER')]"))
+            EC.element_to_be_clickable((By.XPATH, "(//*[contains(.,'REGISTER')])[last()]"))
         ).click()
         password_input = WebDriverWait(driver, 15).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='password']"))
@@ -159,7 +159,7 @@ class TestPasswordValidation:
     def test_register_missing_name_shows_error(self, driver, base_url):
         driver.get(base_url)
         WebDriverWait(driver, 15).until(
-            EC.element_to_be_clickable((By.XPATH, "//*[contains(.,'REGISTER')]"))
+            EC.element_to_be_clickable((By.XPATH, "(//*[contains(.,'REGISTER')])[last()]"))
         ).click()
         driver.find_element(By.XPATH, "//*[contains(.,'Create Account')]").click()
         # Should not navigate away from the register form without a name
