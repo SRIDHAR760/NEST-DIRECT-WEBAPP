@@ -1,9 +1,0 @@
-{
-	"appId": "com.nestdirect.app",
-	"appName": "NestDirect",
-	"webDir": "www",
-	"server": {
-		"url": "https://nest-direct-webapp.vercel.app/",
-		"cleartext": false
-	}
-}

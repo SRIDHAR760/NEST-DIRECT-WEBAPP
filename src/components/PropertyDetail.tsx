@@ -286,6 +286,8 @@ export default function PropertyDetail({
                 <p className="text-base font-bold text-ink font-mono">{property.areaSqFt}</p>
                 <p className="text-[8px] font-bold text-stone-400 uppercase tracking-widest">Sq.Ft Area</p>
               </div>
+            </div>
+
                 {/* Description */}
             <div className="space-y-3">
               <h2 className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">About this property</h2>
@@ -732,7 +734,6 @@ export default function PropertyDetail({
                   </div>
                 </div>
               )}
-            </div>
             </div>
           </div>
         </div>
