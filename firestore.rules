@@ -39,8 +39,9 @@ service cloud.firestore {
       allow read: if isOwner(userId);
       allow create: if isOwner(userId) && isValidUser(incoming());
       allow update: if isOwner(userId) && isValidUser(incoming()) && (
-        // Action: Update profile fields, bookmarks or verification tags
-        incoming().diff(existing()).affectedKeys().hasOnly(['favorites', 'onboardingCompleted', 'isKycVerified', 'displayName', 'photoURL'])
+        // Action: Update profile fields, bookmarks. isKycVerified deliberately excluded —
+        // KYC status must only ever be set by a trusted backend/admin process, never self-declared.
+        incoming().diff(existing()).affectedKeys().hasOnly(['favorites', 'onboardingCompleted', 'displayName', 'photoURL'])
       );
       allow delete: if false; // Immortality clause for user registries
     }
@@ -74,13 +75,13 @@ service cloud.firestore {
       allow update: if isSignedIn() 
         && isValidId(propertyId) 
         && isValidProperty(incoming()) 
-        && (incoming().ownerEmail == request.auth.token.email || incoming().ownerName == request.auth.token.name)
+        && (existing().ownerEmail == request.auth.token.email || existing().ownerName == request.auth.token.name)
         && (
-          // Action: Edit details or toggle status
+          // Action: Edit details
           incoming().diff(existing()).affectedKeys().hasOnly([
             'title', 'description', 'price', 'securityDeposit', 'type', 'address', 'city', 
             'bedrooms', 'bathrooms', 'areaSqFt', 'amenities', 'photos', 
-            'ownerPhone', 'ownerAvatar', 'ownerVerified', 'brokerSavings', 'isFeatured', 'status'
+            'ownerPhone', 'ownerAvatar', 'brokerSavings', 'isFeatured'
           ])
         );
 
@@ -92,7 +93,7 @@ service cloud.firestore {
     // Validation Blueprint for Properties
     function isValidProperty(data) {
       return data.keys().hasAll(['id', 'title', 'description', 'price', 'type', 'address', 'city', 'ownerName', 'createdAt'])
-        && data.keys().size() <= 23
+        && data.keys().size() <= 22
         && data.id is string && data.id.size() <= 128
         && data.title is string && data.title.size() <= 150
         && data.description is string && data.description.size() <= 5000
@@ -113,7 +114,6 @@ service cloud.firestore {
         && (data.ownerVerified == null || data.ownerVerified is bool)
         && (data.brokerSavings == null || (data.brokerSavings is int || data.brokerSavings is float))
         && (data.isFeatured == null || data.isFeatured is bool)
-        && (data.status == null || (data.status is string && (data.status == 'available' || data.status == 'occupied')))
         && data.createdAt is string && data.createdAt.size() <= 100;
     }
 
@@ -123,19 +123,15 @@ service cloud.firestore {
     match /inquiries/{inquiryId} {
       allow get: if isSignedIn() && isValidId(inquiryId) && (
         resource.data.tenantEmail == request.auth.token.email
-        || resource.data.ownerEmail == request.auth.token.email
         || get(/databases/$(database)/documents/properties/$(resource.data.propertyId)).data.ownerEmail == request.auth.token.email
         || get(/databases/$(database)/documents/properties/$(resource.data.propertyId)).data.ownerName == request.auth.token.name
       );
 
-      // Require the query itself to be filtered to the requester's own email —
-      // do NOT allow open-ended listing of the whole collection.
-      allow list: if isSignedIn()
-        && request.query.limit <= 50
-        && (
-          request.query.where.tenantEmail == request.auth.token.email
-          || request.query.where.ownerEmail == request.auth.token.email
-        );
+      allow list: if isSignedIn() && (
+        resource.data.tenantEmail == request.auth.token.email
+        || get(/databases/$(database)/documents/properties/$(resource.data.propertyId)).data.ownerEmail == request.auth.token.email
+        || get(/databases/$(database)/documents/properties/$(resource.data.propertyId)).data.ownerName == request.auth.token.name
+      );
 
       allow create: if isSignedIn() 
         && isValidId(inquiryId) 
@@ -148,8 +144,7 @@ service cloud.firestore {
           // Action: Landlord approvals / updates
           (incoming().diff(existing()).affectedKeys().hasOnly(['status'])) 
           && (
-            existing().ownerEmail == request.auth.token.email
-            || get(/databases/$(database)/documents/properties/$(existing().propertyId)).data.ownerEmail == request.auth.token.email
+            get(/databases/$(database)/documents/properties/$(existing().propertyId)).data.ownerEmail == request.auth.token.email
             || get(/databases/$(database)/documents/properties/$(existing().propertyId)).data.ownerName == request.auth.token.name
           )
         );
@@ -162,7 +157,7 @@ service cloud.firestore {
     // Validation Blueprint for Tour Inquiries
     function isValidInquiry(data) {
       return data.keys().hasAll(['id', 'propertyId', 'tenantName', 'status', 'createdAt'])
-        && data.keys().size() <= 12
+        && data.keys().size() <= 11
         && data.id is string && data.id.size() <= 128
         && data.propertyId is string && data.propertyId.size() <= 128
         && data.tenantName is string && data.tenantName.size() <= 100
@@ -173,7 +168,6 @@ service cloud.firestore {
         && (data.message == null || (data.message is string && data.message.size() <= 2000))
         && data.status is string && (data.status == 'pending' || data.status == 'accepted' || data.status == 'declined')
         && data.createdAt is string && data.createdAt.size() <= 100
-        && (data.ownerEmail == null || (data.ownerEmail is string && data.ownerEmail.size() <= 100))
         && (data.userUid == null || (data.userUid is string && data.userUid.size() <= 128));
     }
 
@@ -181,17 +175,8 @@ service cloud.firestore {
     // 💬 CHAT MESSAGES RULES
     // =========================================================================
     match /chat_messages/{messageId} {
-      allow get: if isSignedIn() && isValidId(messageId) && (
-        resource.data.tenantEmail == request.auth.token.email
-        || resource.data.ownerEmail == request.auth.token.email
-      );
-
-      allow list: if isSignedIn()
-        && request.query.limit <= 50
-        && (
-          request.query.where.tenantEmail == request.auth.token.email
-          || request.query.where.ownerEmail == request.auth.token.email
-        );
+      allow get: if isSignedIn() && isValidId(messageId);
+      allow list: if isSignedIn();
 
       allow create: if isSignedIn() 
         && isValidId(messageId) 
@@ -208,14 +193,12 @@ service cloud.firestore {
     // Validation Blueprint for Private Dialogue Messages
     function isValidChatMessage(data) {
       return data.keys().hasAll(['id', 'propertyId', 'sender', 'text', 'timestamp'])
-        && data.keys().size() <= 8
+        && data.keys().size() <= 6
         && data.id is string && data.id.size() <= 128
         && data.propertyId is string && data.propertyId.size() <= 128
         && data.sender is string && (data.sender == 'tenant' || data.sender == 'owner')
         && data.text is string && data.text.size() <= 5000
         && data.timestamp is string && data.timestamp.size() <= 100
-        && (data.tenantEmail == null || (data.tenantEmail is string && data.tenantEmail.size() <= 100))
-        && (data.ownerEmail == null || (data.ownerEmail is string && data.ownerEmail.size() <= 100))
         && (data.userUid == null || (data.userUid is string && data.userUid.size() <= 128));
     }
   }

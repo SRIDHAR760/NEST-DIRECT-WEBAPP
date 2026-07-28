@@ -30,6 +30,15 @@ export const options = {
       iterations: 1,
       exec: 'smokeTest',
     },
+    // Matches the requested spec exactly: 100 concurrent virtual users,
+    // sustained continuously for 1 minute (no ramp-up/down — flat load).
+    normal_expected_load: {
+      executor: 'constant-vus',
+      exec: 'pageLoadTest',
+      vus: 100,
+      duration: '1m',
+      startTime: '5s',
+    },
     average_load: {
       executor: 'ramping-vus',
       exec: 'pageLoadTest',
@@ -39,7 +48,7 @@ export const options = {
         { duration: '1m', target: 50 },
         { duration: '30s', target: 0 },
       ],
-      startTime: '5s',
+      startTime: '1m10s',
     },
     stress: {
       executor: 'ramping-vus',
@@ -50,7 +59,7 @@ export const options = {
         { duration: '1m', target: 200 },
         { duration: '30s', target: 0 },
       ],
-      startTime: '2m10s',
+      startTime: '3m20s',
     },
     spike: {
       executor: 'ramping-vus',
@@ -61,7 +70,7 @@ export const options = {
         { duration: '30s', target: 300 },
         { duration: '10s', target: 0 },
       ],
-      startTime: '4m',
+      startTime: '6m',
     },
     // Only runs if INCLUDE_API_LOAD=true is explicitly passed. Deliberately
     // tiny (5 VUs, few iterations) to protect your Gemini quota/budget.
@@ -71,7 +80,7 @@ export const options = {
         vus: 5,
         iterations: 10,
         exec: 'apiLoadTest',
-        startTime: '5m30s',
+        startTime: '7m',
       },
     } : {}),
   },
