@@ -8,6 +8,7 @@ import ChatSystem from './components/ChatSystem';
 import GuruChatBot from './components/GuruChatBot';
 import NeighborhoodMap from './components/NeighborhoodMap';
 import PropertyCardImageCarousel from './components/PropertyCardImageCarousel';
+import { SecurityAndLoadTestHub } from './components/SecurityAndLoadTestHub';
 import { motion, AnimatePresence } from 'motion/react';
 
 // Firebase Integrations & auth listeners
@@ -157,6 +158,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCity, setSelectedCity] = useState<string>('All');
   const [selectedType, setSelectedType] = useState<string>('All');
+  const [sortBy, setSortBy] = useState<'newest' | 'price-low' | 'price-high'>('newest');
   const [priceLimit, setPriceLimit] = useState<number>(100000);
   const [minBedrooms, setMinBedrooms] = useState<string>('any');
   const [onlyVerified, setOnlyVerified] = useState<boolean>(false);
@@ -170,6 +172,7 @@ export default function App() {
   // --- View Control States ---
   // For Web Layout view selection: 'browse' | 'docs' | 'owner' | 'chats' | 'guru'
   const [webActiveSection, setWebActiveSection] = useState<'browse' | 'docs' | 'owner' | 'chats' | 'guru'>('browse');
+  const [showSecurityHub, setShowSecurityHub] = useState(false);
 
   // --- Active elements state ---
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
@@ -708,6 +711,23 @@ export default function App() {
     });
   };
 
+  const toggleCompare = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setComparedPropertyIds(prev => {
+      if (prev.includes(id)) {
+        showToast("Removed from comparison matrix");
+        return prev.filter(x => x !== id);
+      } else {
+        if (prev.length >= 3) {
+          showToast("Maximum 3 properties can be compared simultaneously");
+          return prev;
+        }
+        showToast("Added to comparison matrix");
+        return [...prev, id];
+      }
+    });
+  };
+
   const getCommuteTime = (cityZone: string, workplaceId: string, mode: 'metro' | 'auto' | 'bike'): number => {
     const workplace = workplacesData.find(w => w.id === workplaceId);
     if (!workplace) return 15;
@@ -716,7 +736,7 @@ export default function App() {
     return workplace.commuteTimes[mappedZone]?.[mode] ?? 15;
   };
 
-  // --- Filtering Calculations ---
+  // --- Filtering & Sorting Calculations ---
   const filteredProperties = properties.filter(p => {
     const matchesSearch = p.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
                           p.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -744,6 +764,10 @@ export default function App() {
     const matchesCommute = commuteTime <= maxCommuteTime;
 
     return matchesSearch && matchesCity && matchesType && matchesPrice && matchesBeds && matchesVerified && matchesTier && matchesCommute;
+  }).sort((a, b) => {
+    if (sortBy === 'price-low') return a.price - b.price;
+    if (sortBy === 'price-high') return b.price - a.price;
+    return b.createdAt.localeCompare(a.createdAt);
   });
 
   const isFilterActive = searchQuery !== '' || 
@@ -1131,7 +1155,15 @@ export default function App() {
             </nav>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowSecurityHub(true)}
+              className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-700 hover:bg-amber-500/20 text-xs font-bold transition-all cursor-pointer"
+            >
+              <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
+              <span>AppSec & Load Test</span>
+            </button>
+
             {currentUser ? (
               <div className="flex items-center gap-3 pl-4 border-l border-stone-200">
                 <div className="text-right hidden sm:block">
@@ -1229,14 +1261,27 @@ export default function App() {
                       <span className="text-[9px] font-extrabold text-terracotta uppercase tracking-widest leading-none mb-1">Select zone</span>
                       <select 
                         value={selectedCity}
-                        onChange={(e) => setSelectedCity(e.target.value)}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setSelectedCity(val);
+                          setSelectedMapNeighborhood(val === 'All' ? 'Adyar' : val);
+                        }}
                         className="bg-transparent border-none text-[#1A1D1F] font-bold focus:outline-none text-base cursor-pointer w-full"
                       >
                         {['All', 'Adyar', 'Nungambakkam', 'OMR', 'Mylapore'].map(c => <option key={c} value={c}>{c === 'All' ? 'Everywhere' : c}</option>)}
                       </select>
                     </div>
                   </div>
-                  <button className="w-full md:w-auto h-14 px-10 bg-[#12141C] hover:bg-terracotta text-white font-bold rounded-xl transition-all duration-300 transform hover:scale-102 active:scale-98 shadow-md">
+                  <button 
+                    onClick={() => {
+                      const elem = document.getElementById('handpicked-properties');
+                      if (elem) {
+                        elem.scrollIntoView({ behavior: 'smooth' });
+                      }
+                      showToast(`Showing verified properties in ${selectedCity === 'All' ? 'all zones' : selectedCity}`);
+                    }}
+                    className="w-full md:w-auto h-14 px-10 bg-[#12141C] hover:bg-terracotta text-white font-bold rounded-xl transition-all duration-300 transform hover:scale-102 active:scale-98 shadow-md cursor-pointer"
+                  >
                     Explore
                   </button>
                 </motion.div>
@@ -1250,7 +1295,7 @@ export default function App() {
                   <button
                     key={type}
                     onClick={() => setSelectedType(type)}
-                    className={`px-5 py-2.5 rounded-lg text-xs font-bold transition-all border ${
+                    className={`px-5 py-2.5 rounded-lg text-xs font-bold transition-all border cursor-pointer ${
                       selectedType === type 
                         ? 'bg-[#12141C] text-white border-[#12141C] shadow-md' 
                         : 'bg-white text-slate-600 border-slate-200/60 hover:bg-slate-50'
@@ -1263,10 +1308,15 @@ export default function App() {
 
               <div className="flex items-center gap-3">
                 <span className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Sort by:</span>
-                <div className="bg-white border border-slate-200/60 rounded-lg px-4 py-2.5 text-xs font-bold flex items-center gap-3 cursor-pointer hover:bg-slate-50 transition-all text-slate-700">
-                  Newest Listings
-                  <ChevronRight className="w-4 h-4 rotate-90 text-slate-400" />
-                </div>
+                <select 
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as any)}
+                  className="bg-white border border-slate-200/60 rounded-lg px-4 py-2.5 text-xs font-bold cursor-pointer hover:bg-slate-50 transition-all text-slate-700 focus:outline-none shadow-sm"
+                >
+                  <option value="newest">Newest Listings</option>
+                  <option value="price-low">Price: Low to High</option>
+                  <option value="price-high">Price: High to Low</option>
+                </select>
               </div>
             </section>
 
@@ -1302,17 +1352,28 @@ export default function App() {
                   </button>
                 </motion.div>
 
-                <div className="flex items-end justify-between">
+                <div id="handpicked-properties" className="flex items-end justify-between scroll-mt-24">
                   <div className="space-y-1">
                     <h3 className="text-2xl font-bold font-display tracking-tight text-[#1A1D1F]">Handpicked Properties</h3>
                     <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">{filteredProperties.length} Verified direct units in {selectedCity === 'All' ? 'Chennai' : selectedCity}</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button className="p-2.5 bg-white border border-slate-200/60 rounded-lg hover:bg-slate-50 transition-all shadow-sm">
-                      <Grid className="w-4 h-4 text-slate-400" />
+                    <button 
+                      onClick={() => showToast("Grid view active")}
+                      className="p-2.5 bg-white border border-slate-200/60 rounded-lg hover:bg-slate-50 transition-all shadow-sm cursor-pointer"
+                      title="Grid View"
+                    >
+                      <Grid className="w-4 h-4 text-terracotta" />
                     </button>
-                    <button className="p-2.5 bg-white border border-slate-200/60 rounded-lg hover:bg-slate-50 transition-all shadow-sm">
-                      <Map className="w-4 h-4 text-slate-400" />
+                    <button 
+                      onClick={() => {
+                        document.getElementById('neighborhood-explorer-root')?.scrollIntoView({ behavior: 'smooth' });
+                        showToast("Switched to Neighborhood Map view");
+                      }}
+                      className="p-2.5 bg-white border border-slate-200/60 rounded-lg hover:bg-slate-50 transition-all shadow-sm cursor-pointer"
+                      title="Interactive Map View"
+                    >
+                      <Map className="w-4 h-4 text-slate-400 hover:text-terracotta" />
                     </button>
                   </div>
                 </div>
@@ -1349,6 +1410,8 @@ export default function App() {
                             propertyId={prop.id}
                             favorites={favorites}
                             toggleFavorite={toggleFavorite}
+                            comparedPropertyIds={comparedPropertyIds}
+                            toggleCompare={toggleCompare}
                             type={prop.type}
                             city={prop.city}
                             selectedWorkplace={selectedWorkplace}
@@ -1512,12 +1575,28 @@ export default function App() {
                     onZoneSelect={(zone) => {
                       setSelectedCity(zone);
                       setSelectedMapNeighborhood(zone);
-                      showToast(`Neighborhood set to ${zone}`);
+                      const elem = document.getElementById('handpicked-properties');
+                      if (elem) {
+                        elem.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      }
+                      showToast(`Centered list view on ${zone} properties`);
                     }}
                     neighborhoodData={neighborhoodData}
                     transitMode={commuteTransitMode}
                     selectedWorkplace={selectedWorkplace}
-                    onPropertySelect={setSelectedPropertyId}
+                    onPropertySelect={(id) => {
+                      setSelectedPropertyId(id);
+                      const prop = properties.find(p => p.id === id);
+                      if (prop) {
+                        setSelectedCity(prop.city);
+                        setSelectedMapNeighborhood(prop.city);
+                        const elem = document.getElementById('handpicked-properties');
+                        if (elem) {
+                          elem.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
+                        showToast(`Selected ${prop.title} in ${prop.city}`);
+                      }
+                    }}
                   />
                 </div>
 
@@ -1874,7 +1953,10 @@ export default function App() {
                   <p className="text-[10px] text-green-600 tracking-widest font-black uppercase">Commission Avoided</p>
                 </div>
                 <div className="w-px h-12 bg-slate-100" />
-                <button className="bg-terracotta hover:bg-terracotta-dark text-white px-8 py-3.5 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-terracotta/20 transition-all hover:scale-105 active:scale-95">
+                <button 
+                  onClick={() => showToast("Comparison Report exported successfully!")}
+                  className="bg-terracotta hover:bg-terracotta-dark text-white px-8 py-3.5 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-terracotta/20 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                >
                   Export Report
                 </button>
               </div>
@@ -1899,6 +1981,18 @@ export default function App() {
           commuteTransitMode={commuteTransitMode}
         />
       )}
+
+      {/* ==================================================== */}
+      {/* 🛡️ APPSEC & 100 VU LOAD TESTING HUB MODAL             */}
+      {/* ==================================================== */}
+      <AnimatePresence>
+        {showSecurityHub && (
+          <SecurityAndLoadTestHub
+            onClose={() => setShowSecurityHub(false)}
+            showToast={showToast}
+          />
+        )}
+      </AnimatePresence>
 
     </div>
   );

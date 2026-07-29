@@ -144,10 +144,27 @@ const NeighborhoodMap: React.FC<NeighborhoodProps> = ({
 
   const currentZone = neighborhoodData[selectedZone] || neighborhoodData['Adyar'];
   const activeWorkplaceObj = mapWorkplaces.find(w => w.id === selectedWorkplace) || mapWorkplaces[0];
-  const activeZoneCenter = getZoneCenter(selectedZone);
 
-  // Commute route from selected workplace to active residential zone center
-  const commuteRoutePath = `M ${activeWorkplaceObj.x},${activeWorkplaceObj.y} Q ${(activeWorkplaceObj.x + activeZoneCenter.x) / 2 - 25},${(activeWorkplaceObj.y + activeZoneCenter.y) / 2 - 25} ${activeZoneCenter.x},${activeZoneCenter.y}`;
+  // Dynamic targeting based on hover states (Zone, Property Pin, or Workplace)
+  const effectiveWorkplace = hoveredWork || activeWorkplaceObj;
+  const effectiveTargetZone = hoveredZone || (hoveredProp ? hoveredProp.city : null) || selectedZone;
+  
+  // Exact target coordinates: property pin if hovering property, otherwise neighborhood center
+  const targetPoint = hoveredProp 
+    ? { x: hoveredProp.x, y: hoveredProp.y, label: hoveredProp.title }
+    : { ...getZoneCenter(effectiveTargetZone), label: effectiveTargetZone };
+
+  // Calculate smooth curved path from active workspace to target location
+  const startX = effectiveWorkplace.x;
+  const startY = effectiveWorkplace.y;
+  const endX = targetPoint.x;
+  const endY = targetPoint.y;
+  const cpX = (startX + endX) / 2 - (startY - endY) * 0.2;
+  const cpY = (startY + endY) / 2 + (startX - endX) * 0.2;
+
+  const dynamicCommutePath = `M ${startX},${startY} Q ${cpX},${cpY} ${endX},${endY}`;
+  const isHoveredInteraction = Boolean(hoveredZone || hoveredProp || hoveredWork);
+  const currentCommuteTime = effectiveWorkplace.commuteTimes[effectiveTargetZone]?.[transitMode] || 15;
 
   return (
     <div className="space-y-6" id="neighborhood-explorer-root">
@@ -265,43 +282,84 @@ const NeighborhoodMap: React.FC<NeighborhoodProps> = ({
             opacity="0.5"
           />
 
-          {/* 6. Neighborhood Ward Polygons */}
+          {/* 6. Neighborhood Ward Polygons & Interactive Center Badges */}
           {zones.map((zone) => {
             const isActive = selectedZone === zone.id;
             const isHovered = hoveredZone === zone.id;
+            const center = getZoneCenter(zone.id);
+            const directUnits = neighborhoodData[zone.id]?.directCount || 2;
             
             return (
-              <g key={zone.id}>
+              <g 
+                key={zone.id}
+                className="cursor-pointer group"
+                onClick={() => onZoneSelect(zone.id)}
+                onMouseEnter={() => setHoveredZone(zone.id)}
+                onMouseLeave={() => setHoveredZone(null)}
+              >
+                {/* Zone Polygon Path */}
                 <motion.path
                   d={zone.path}
                   fill={isActive ? zone.color : '#cbd5e1'}
-                  fillOpacity={isActive ? 0.22 : 0.08}
-                  stroke={isActive ? zone.color : '#94a3b8'}
-                  strokeWidth={isActive ? 2 : 0.75}
+                  fillOpacity={isActive ? 0.28 : isHovered ? 0.2 : 0.08}
+                  stroke={isActive ? zone.color : isHovered ? '#B5652B' : '#94a3b8'}
+                  strokeWidth={isActive ? 2.5 : isHovered ? 2 : 0.75}
                   strokeDasharray={isActive ? 'none' : '3 1.5'}
                   initial={false}
                   animate={{
-                    fillOpacity: isActive || isHovered ? 0.28 : 0.08,
+                    fillOpacity: isActive ? 0.32 : isHovered ? 0.22 : 0.08,
                     strokeWidth: isActive || isHovered ? 2.5 : 0.75,
                   }}
-                  whileHover={{ scale: 1.01 }}
-                  onClick={() => onZoneSelect(zone.id)}
-                  onMouseEnter={() => setHoveredZone(zone.id)}
-                  onMouseLeave={() => setHoveredZone(null)}
-                  className="cursor-pointer transition-all duration-300"
+                  whileHover={{ scale: 1.008 }}
+                  transition={{ duration: 0.2 }}
                 />
                 
-                {/* Zone Name Label */}
-                <text 
-                  x={getZoneCenter(zone.id).x} 
-                  y={getZoneCenter(zone.id).y - 25} 
-                  textAnchor="middle" 
-                  className={`font-sans text-[7px] font-black uppercase tracking-wider select-none pointer-events-none transition-colors ${
-                    isActive ? 'fill-slate-800' : 'fill-slate-400'
-                  }`}
-                >
-                  {zone.name}
-                </text>
+                {/* Active Zone Pulsing Ground Ring */}
+                {isActive && (
+                  <circle
+                    cx={center.x}
+                    cy={center.y - 12}
+                    r="16"
+                    fill={zone.color}
+                    fillOpacity="0.15"
+                    className="animate-ping pointer-events-none"
+                    style={{ animationDuration: '2.5s' }}
+                  />
+                )}
+
+                {/* SVG Center Interactive Badge Pill */}
+                <g transform={`translate(${center.x}, ${center.y - 14})`}>
+                  <rect
+                    x="-32"
+                    y="-10"
+                    width="64"
+                    height="18"
+                    rx="5"
+                    fill={isActive ? '#12141C' : isHovered ? '#B5652B' : '#ffffff'}
+                    fillOpacity={isActive ? '0.92' : '0.9'}
+                    stroke={isActive ? zone.color : isHovered ? '#B5652B' : '#cbd5e1'}
+                    strokeWidth={isActive || isHovered ? '1.5' : '0.75'}
+                    className="shadow-sm transition-all duration-200"
+                  />
+                  <text 
+                    x="0" 
+                    y="-1" 
+                    textAnchor="middle" 
+                    fill={isActive || isHovered ? '#ffffff' : '#334155'}
+                    className="font-sans text-[6.5px] font-black uppercase tracking-wider select-none pointer-events-none"
+                  >
+                    {zone.name}
+                  </text>
+                  <text 
+                    x="0" 
+                    y="5.5" 
+                    textAnchor="middle" 
+                    fill={isActive || isHovered ? '#cbd5e1' : '#64748b'}
+                    className="font-sans text-[5px] font-bold select-none pointer-events-none"
+                  >
+                    {directUnits} units • Click to view
+                  </text>
+                </g>
               </g>
             );
           })}
@@ -310,48 +368,115 @@ const NeighborhoodMap: React.FC<NeighborhoodProps> = ({
           <AnimatePresence>
             {showRadius && (
               <motion.circle
+                key={`radius-${effectiveTargetZone}`}
                 initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.8 }}
-                cx={activeZoneCenter.x}
-                cy={activeZoneCenter.y}
+                cx={getZoneCenter(effectiveTargetZone).x}
+                cy={getZoneCenter(effectiveTargetZone).y}
                 r={radiusSettings[transitMode].r}
                 fill={radiusSettings[transitMode].color}
                 stroke={radiusSettings[transitMode].stroke}
                 strokeWidth="1.25"
                 strokeDasharray="4 3"
-                className="pointer-events-none"
+                className="pointer-events-none transition-all duration-300"
               />
             )}
           </AnimatePresence>
 
-          {/* 8. Live Dynamic Commute Route (From Active Workspace to Selected Zone Center) */}
-          <path 
-            d={commuteRoutePath} 
-            fill="none" 
-            stroke="#475569" 
-            strokeWidth="1.5" 
-            strokeDasharray="4 3" 
-            opacity="0.4"
-            className="pointer-events-none"
-          />
-          {/* Glowing Animated Pulse Route */}
-          <path 
-            d={commuteRoutePath} 
-            fill="none" 
-            stroke={radiusSettings[transitMode].stroke}
-            strokeWidth="1.75" 
-            strokeDasharray="8 12" 
-            className="pointer-events-none"
-            style={{
-              strokeDashoffset: 100,
-              animation: 'dashCommute 4s linear infinite'
-            }}
-          />
-          {/* Animated Moving commuter dot */}
-          <circle r="4" fill={radiusSettings[transitMode].stroke} className="pointer-events-none">
-            <animateMotion dur="4s" repeatCount="indefinite" path={commuteRoutePath} />
-          </circle>
+          {/* 8. Smooth Animated Commute Path Line (Workspace to Neighborhood/Property) */}
+          <g className="pointer-events-none">
+            {/* Background Faint Reference Trace */}
+            <path 
+              d={dynamicCommutePath} 
+              fill="none" 
+              stroke="#94a3b8" 
+              strokeWidth="1.5" 
+              strokeDasharray="3 3" 
+              opacity="0.35"
+            />
+
+            {/* Smooth Animated Path Draw Line */}
+            <motion.path 
+              key={`path-${startX}-${startY}-${endX}-${endY}`}
+              d={dynamicCommutePath} 
+              fill="none" 
+              stroke={isHoveredInteraction ? '#B5652B' : radiusSettings[transitMode].stroke}
+              strokeWidth={isHoveredInteraction ? "3" : "2"} 
+              strokeLinecap="round"
+              initial={{ pathLength: 0, opacity: 0 }}
+              animate={{ pathLength: 1, opacity: 1 }}
+              transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
+            />
+
+            {/* Flowing Dash Particles Overlay */}
+            <path 
+              d={dynamicCommutePath} 
+              fill="none" 
+              stroke="#ffffff"
+              strokeWidth="1.2" 
+              strokeDasharray="5 10" 
+              opacity="0.8"
+              style={{
+                strokeDashoffset: 100,
+                animation: 'dashCommute 2s linear infinite'
+              }}
+            />
+
+            {/* Animated Moving Commuter Dot along path */}
+            <circle r={isHoveredInteraction ? "4.5" : "3.5"} fill={isHoveredInteraction ? "#B5652B" : radiusSettings[transitMode].stroke} stroke="#ffffff" strokeWidth="1.5">
+              <animateMotion dur="2.2s" repeatCount="indefinite" path={dynamicCommutePath} />
+            </circle>
+
+            {/* Target Location Pulsing Radar Ring */}
+            <circle 
+              cx={endX} 
+              cy={endY} 
+              r="9" 
+              fill="none"
+              stroke={isHoveredInteraction ? '#B5652B' : radiusSettings[transitMode].stroke} 
+              strokeWidth="1.5"
+              className="animate-ping"
+              style={{ animationDuration: '2s' }}
+            />
+            <circle 
+              cx={endX} 
+              cy={endY} 
+              r="3.5" 
+              fill={isHoveredInteraction ? '#B5652B' : radiusSettings[transitMode].stroke} 
+              stroke="#ffffff"
+              strokeWidth="1"
+            />
+
+            {/* Floating Commute Time Badge along Path Midpoint */}
+            <motion.g
+              key={`badge-${startX}-${startY}-${endX}-${endY}`}
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.1, duration: 0.3 }}
+            >
+              <rect 
+                x={((startX + endX) / 2) - 24} 
+                y={((startY + endY) / 2) - 8} 
+                width="48" 
+                height="14" 
+                rx="4" 
+                fill="#12141C" 
+                fillOpacity="0.95"
+                stroke={isHoveredInteraction ? '#B5652B' : radiusSettings[transitMode].stroke}
+                strokeWidth="1"
+              />
+              <text 
+                x={(startX + endX) / 2} 
+                y={((startY + endY) / 2) + 2} 
+                textAnchor="middle" 
+                fill="#ffffff" 
+                className="font-sans text-[6px] font-black uppercase tracking-wider"
+              >
+                ⚡ {currentCommuteTime} MINS
+              </text>
+            </motion.g>
+          </g>
 
           {/* 9. Interactive Workplace Nodes */}
           {mapWorkplaces.map((w) => {
@@ -420,7 +545,10 @@ const NeighborhoodMap: React.FC<NeighborhoodProps> = ({
               <g 
                 key={prop.id}
                 className="cursor-pointer"
-                onClick={() => onPropertySelect && onPropertySelect(prop.id)}
+                onClick={() => {
+                  onZoneSelect(prop.city);
+                  if (onPropertySelect) onPropertySelect(prop.id);
+                }}
                 onMouseEnter={() => setHoveredProp(prop)}
                 onMouseLeave={() => setHoveredProp(null)}
               >
@@ -546,6 +674,13 @@ const NeighborhoodMap: React.FC<NeighborhoodProps> = ({
                   <p className="text-[9px] text-slate-400 leading-snug line-clamp-1">
                     {neighborhoodData[hoveredZone || selectedZone]?.desc || 'Chennai premium residential zone.'}
                   </p>
+                  <button
+                    onClick={() => onZoneSelect(hoveredZone || selectedZone)}
+                    className="mt-1.5 w-full py-1 px-2.5 bg-terracotta/20 hover:bg-terracotta border border-terracotta/40 text-terracotta hover:text-white rounded text-[8px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 cursor-pointer"
+                  >
+                    <Compass className="w-2.5 h-2.5" />
+                    Center List View on {hoveredZone || selectedZone} Properties
+                  </button>
                 </motion.div>
               )}
             </AnimatePresence>

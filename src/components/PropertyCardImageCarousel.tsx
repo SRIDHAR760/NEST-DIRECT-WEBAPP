@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ChevronLeft, ChevronRight, Compass, Sparkles, Heart } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Compass, Sparkles, Heart, Scale } from 'lucide-react';
 import { Property } from '../types';
 
 interface PropertyCardImageCarouselProps {
@@ -8,6 +8,8 @@ interface PropertyCardImageCarouselProps {
   propertyId: string;
   favorites: string[];
   toggleFavorite: (id: string, e: React.MouseEvent) => void;
+  comparedPropertyIds?: string[];
+  toggleCompare?: (id: string, e: React.MouseEvent) => void;
   type: string;
   city: string;
   selectedWorkplace: string;
@@ -23,6 +25,8 @@ export default function PropertyCardImageCarousel({
   propertyId,
   favorites,
   toggleFavorite,
+  comparedPropertyIds = [],
+  toggleCompare,
   type,
   city,
   selectedWorkplace,
@@ -165,20 +169,36 @@ export default function PropertyCardImageCarousel({
         </div>
       )}
 
-      {/* Bottom overlay for Price and Favorite */}
+      {/* Bottom overlay for Price, Compare, and Favorite */}
       <div className="absolute bottom-6 left-6 right-6 flex items-end justify-between z-10">
         <div className="bg-ink/95 backdrop-blur-md text-white px-4 py-2 rounded-lg flex items-center gap-3 border border-white/10 shadow-xl">
           <span className="text-lg font-bold font-mono tracking-tight text-white">₹{prop.price.toLocaleString()}</span>
           <div className="w-px h-5 bg-white/20" />
           <span className="text-[10px] font-black text-sage uppercase tracking-widest">0% Fees</span>
         </div>
-        <button 
-          onClick={(e) => toggleFavorite(propertyId, e)}
-          className="w-10 h-10 bg-white/95 backdrop-blur-md rounded-lg flex items-center justify-center text-ink hover:text-rose-500 hover:scale-105 transition-all shadow-xl cursor-pointer"
-          aria-label="Add to favorites"
-        >
-          <Heart className={`w-4 h-4 transition-colors ${favorites.includes(propertyId) ? 'fill-rose-500 text-rose-500' : 'text-ink'}`} strokeWidth={1.5} />
-        </button>
+        <div className="flex items-center gap-2">
+          {toggleCompare && (
+            <button 
+              onClick={(e) => toggleCompare(propertyId, e)}
+              className={`w-10 h-10 backdrop-blur-md rounded-lg flex items-center justify-center transition-all shadow-xl cursor-pointer ${
+                comparedPropertyIds.includes(propertyId)
+                  ? 'bg-terracotta text-white hover:bg-terracotta-dark'
+                  : 'bg-white/95 text-ink hover:text-terracotta hover:scale-105'
+              }`}
+              title={comparedPropertyIds.includes(propertyId) ? "Remove from Compare Matrix" : "Add to Compare Matrix"}
+            >
+              <Scale className="w-4 h-4" strokeWidth={1.5} />
+            </button>
+          )}
+          <button 
+            onClick={(e) => toggleFavorite(propertyId, e)}
+            className="w-10 h-10 bg-white/95 backdrop-blur-md rounded-lg flex items-center justify-center text-ink hover:text-rose-500 hover:scale-105 transition-all shadow-xl cursor-pointer"
+            aria-label="Add to favorites"
+            title="Bookmark Property"
+          >
+            <Heart className={`w-4 h-4 transition-colors ${favorites.includes(propertyId) ? 'fill-rose-500 text-rose-500' : 'text-ink'}`} strokeWidth={1.5} />
+          </button>
+        </div>
       </div>
     </div>
   );
