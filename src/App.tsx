@@ -8,7 +8,6 @@ import ChatSystem from './components/ChatSystem';
 import GuruChatBot from './components/GuruChatBot';
 import NeighborhoodMap from './components/NeighborhoodMap';
 import PropertyCardImageCarousel from './components/PropertyCardImageCarousel';
-import { SecurityAndLoadTestHub } from './components/SecurityAndLoadTestHub';
 import { motion, AnimatePresence } from 'motion/react';
 
 // Firebase Integrations & auth listeners
@@ -172,7 +171,6 @@ export default function App() {
   // --- View Control States ---
   // For Web Layout view selection: 'browse' | 'docs' | 'owner' | 'chats' | 'guru'
   const [webActiveSection, setWebActiveSection] = useState<'browse' | 'docs' | 'owner' | 'chats' | 'guru'>('browse');
-  const [showSecurityHub, setShowSecurityHub] = useState(false);
 
   // --- Active elements state ---
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
@@ -1156,14 +1154,6 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => setShowSecurityHub(true)}
-              className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-700 hover:bg-amber-500/20 text-xs font-bold transition-all cursor-pointer"
-            >
-              <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
-              <span>AppSec & Load Test</span>
-            </button>
-
             {currentUser ? (
               <div className="flex items-center gap-3 pl-4 border-l border-stone-200">
                 <div className="text-right hidden sm:block">
@@ -1982,17 +1972,6 @@ export default function App() {
         />
       )}
 
-      {/* ==================================================== */}
-      {/* 🛡️ APPSEC & 100 VU LOAD TESTING HUB MODAL             */}
-      {/* ==================================================== */}
-      <AnimatePresence>
-        {showSecurityHub && (
-          <SecurityAndLoadTestHub
-            onClose={() => setShowSecurityHub(false)}
-            showToast={showToast}
-          />
-        )}
-      </AnimatePresence>
 
     </div>
   );
