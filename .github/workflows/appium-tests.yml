@@ -1,0 +1,70 @@
+name: Appium Mobile Browser Tests
+
+# NOTE: Booting an Android emulator inside GitHub Actions is slow (3-6 min)
+# and can be flaky on shared runners. For production-grade mobile testing,
+# consider swapping this job's emulator step for BrowserStack App Automate
+# or Sauce Labs (both have GitHub Actions available on the Marketplace) —
+# this workflow uses the free/local emulator approach so it runs with zero
+# external accounts required.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'  # weekly, Monday — this suite is slower, so not on every push
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tests/appium/**'
+
+jobs:
+  appium:
+    name: Appium (Android Emulator + Chrome)
+    runs-on: macos-latest  # macOS runners have KVM-equivalent hardware acceleration for Android emulators
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node.js (for Appium server)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Appium server + UiAutomator2 driver
+        run: |
+          npm install -g appium
+          appium driver install uiautomator2
+
+      - name: Install Python dependencies
+        run: pip install -r tests/appium/requirements.txt
+
+      - name: Enable KVM (Linux runners only — skipped on macOS)
+        if: runner.os == 'Linux'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run Android emulator + Appium tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          script: |
+            appium --base-path /wd/hub &
+            sleep 10
+            cd tests/appium
+            APPIUM_SERVER=http://127.0.0.1:4723/wd/hub BASE_URL=https://nest-direct-webapp.vercel.app \
+              pytest -v --html=report.html --self-contained-html
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: appium-report
+          path: tests/appium/report.html

@@ -1,0 +1,3 @@
+<resources>
+    <style name="Theme.NestDirect" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
