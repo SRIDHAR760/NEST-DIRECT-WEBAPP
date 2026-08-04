@@ -30,8 +30,10 @@ jobs:
             exit 1
           fi
 
-      - name: Set up Gradle
+      - name: Set up Gradle (installs a standalone gradle binary to bootstrap the wrapper)
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.10.2
 
       - name: Generate Gradle wrapper
         run: gradle wrapper --gradle-version 8.10.2
