@@ -14,7 +14,7 @@ import com.nestdirect.app.data.repository.PropertyRepository
 import kotlinx.coroutines.launch
 
 @Composable
-fun PropertyDetailScreen(propertyId: String, onBack: () -> Unit) {
+fun PropertyDetailScreen(propertyId: String, onBack: () -> Unit, onMessageOwner: () -> Unit = {}) {
     var property by remember { mutableStateOf<Property?>(null) }
     val repo = remember { PropertyRepository() }
     val scope = rememberCoroutineScope()
